@@ -1,0 +1,190 @@
+---
+import Layout from './Layout.astro';
+import Header from '../components/Header.astro';
+import AlbumModal from '../components/AlbumModal.astro';
+import { user, fullName } from '../data/account';
+import { photos } from '../data/photos';
+
+interface Props {
+	title: string;
+	heading: string;
+}
+
+const { title, heading } = Astro.props;
+const path = Astro.url.pathname.replace(/\/$/, '') || '/';
+
+const items = [
+	{ href: '/account', label: 'Dashboard' },
+	{ href: '/account/favorites', label: 'Favorites' },
+	{ href: '/account/liked', label: 'Liked' },
+	{ href: '/account/profile', label: 'Profile' },
+];
+---
+
+<Layout title={`${title} – Picweb`} auth="user">
+	<Header />
+	<div class="container shell">
+		<aside class="side">
+			<div class="who">
+				<span class="avatar" data-user-avatar aria-hidden="true">{user.firstName[0]}</span>
+				<div class="who-text">
+					<strong data-user-name>{fullName}</strong>
+					<span>{user.email}</span>
+				</div>
+			</div>
+			<nav class="menu" aria-label="Account">
+				{
+					items.map((item) => (
+						<a href={item.href} class="item" aria-current={path === item.href ? 'page' : undefined}>
+							{item.label}
+						</a>
+					))
+				}
+			</nav>
+			<button type="button" class="item logout" data-logout>Log out</button>
+		</aside>
+		<main class="content">
+			<h1>{heading}</h1>
+			<slot />
+		</main>
+	</div>
+	<AlbumModal photos={photos} />
+</Layout>
+
+<script>
+	import { readProfile, applyProfile } from '../scripts/profile-store';
+
+	// Show the name and avatar saved on the Profile page, if any.
+	const profile = readProfile();
+	if (profile) applyProfile(profile);
+</script>
+
+<script>
+	// No real session exists yet, so logging out just returns to the public home page.
+	document.querySelector('[data-logout]')?.addEventListener('click', () => {
+		window.location.assign('/');
+	});
+</script>
+
+<style>
+	.shell {
+		display: grid;
+		grid-template-columns: 240px minmax(0, 1fr);
+		gap: 40px;
+		padding-top: 32px;
+		padding-bottom: 64px;
+	}
+	.who {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin-bottom: 20px;
+	}
+	.avatar {
+		display: grid;
+		place-items: center;
+		flex: none;
+		width: 48px;
+		height: 48px;
+		border-radius: 50%;
+		background: var(--text) center / cover no-repeat;
+		color: #fff;
+		font-size: 20px;
+		font-weight: 600;
+	}
+	.who-text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.who-text strong {
+		color: var(--text);
+		font-size: 15px;
+	}
+	.who-text span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.menu {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.item {
+		display: flex;
+		align-items: center;
+		height: 44px;
+		padding: 0 14px;
+		border: 0;
+		border-radius: 10px;
+		background: none;
+		color: var(--muted);
+		font: inherit;
+		font-weight: 500;
+		text-align: left;
+		white-space: nowrap;
+		transition: background 0.15s, color 0.15s;
+	}
+	.item:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	.item[aria-current='page'] {
+		background: var(--text);
+		color: #fff;
+	}
+	.item:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.logout {
+		width: 100%;
+		margin-top: 16px;
+		border: 1px solid var(--border);
+		justify-content: center;
+	}
+	h1 {
+		margin: 0 0 24px;
+		font-size: 28px;
+	}
+
+	@media (max-width: 800px) {
+		.shell {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 20px;
+			padding-top: 20px;
+		}
+		/* Row 1: user + Log out. Row 2: the menu. */
+		.side {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-areas:
+				'who logout'
+				'menu menu';
+			align-items: center;
+			gap: 12px;
+		}
+		.who {
+			grid-area: who;
+			margin-bottom: 0;
+		}
+		.logout {
+			grid-area: logout;
+			width: auto;
+			margin: 0;
+			padding: 0 20px;
+		}
+		.menu {
+			grid-area: menu;
+			flex-direction: row;
+			overflow-x: auto;
+			scrollbar-width: none;
+		}
+		.menu::-webkit-scrollbar {
+			display: none;
+		}
+	}
+</style>

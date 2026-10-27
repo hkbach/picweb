@@ -1,0 +1,100 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import UserSummary from '../../components/UserSummary.astro';
+import UserTable from '../../components/UserTable.astro';
+import { users, snapshotDate } from '../../data/users';
+
+// Escape "<" so the data can never close the script tag it is embedded in.
+const json = JSON.stringify({ snapshot: snapshotDate, users }).replace(/</g, '\\u003c');
+---
+
+<AdminLayout title="User management" heading="User management">
+	<p class="intro">
+		Sample data only: no user service is connected yet, so the names below are made up and changes cannot be saved.
+	</p>
+
+	<div class="tabs" role="tablist" aria-label="User management sections" id="user-tabs">
+		<button type="button" class="tab" role="tab" id="tab-summary" aria-controls="panel-summary" aria-selected="true" data-tab="summary">
+			Summary
+		</button>
+		<button type="button" class="tab" role="tab" id="tab-users" aria-controls="panel-users" aria-selected="false" tabindex="-1" data-tab="users">
+			Users
+		</button>
+	</div>
+
+	<div role="tabpanel" id="panel-summary" aria-labelledby="tab-summary">
+		<UserSummary />
+	</div>
+	<div role="tabpanel" id="panel-users" aria-labelledby="tab-users" hidden>
+		<UserTable />
+	</div>
+
+	<script type="application/json" id="users-data" is:inline set:html={json} />
+</AdminLayout>
+
+<script>
+	// Tabs: "Summary" and "Users". The URL hash (#users) lets a tab be linked to.
+	const list = document.querySelector<HTMLElement>('#user-tabs')!;
+	const tabs = Array.from(list.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+
+	const select = (name: string, focus = false) => {
+		for (const tab of tabs) {
+			const on = tab.dataset.tab === name;
+			tab.setAttribute('aria-selected', String(on));
+			tab.tabIndex = on ? 0 : -1;
+			document.querySelector<HTMLElement>(`#${tab.getAttribute('aria-controls')}`)!.hidden = !on;
+			if (on && focus) tab.focus();
+		}
+		history.replaceState(null, '', name === 'summary' ? location.pathname : `#${name}`);
+	};
+
+	tabs.forEach((tab) => tab.addEventListener('click', () => select(tab.dataset.tab!)));
+	list.addEventListener('keydown', (e) => {
+		const i = tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+		const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+		if (next === undefined) return;
+		e.preventDefault();
+		select(tabs[(next + tabs.length) % tabs.length].dataset.tab!, true);
+	});
+
+	if (location.hash === '#users') select('users');
+</script>
+
+<style>
+	.intro {
+		max-width: 720px;
+		margin: -8px 0 20px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.tabs {
+		display: flex;
+		gap: 4px;
+		margin-bottom: 24px;
+		border-bottom: 1px solid var(--border);
+	}
+	.tab {
+		margin-bottom: -1px;
+		padding: 12px 18px;
+		border: 0;
+		border-bottom: 2px solid transparent;
+		background: none;
+		color: var(--muted);
+		font: inherit;
+		font-weight: 500;
+		transition: color 0.15s, border-color 0.15s;
+	}
+	.tab:hover {
+		color: var(--text);
+	}
+	.tab[aria-selected='true'] {
+		border-bottom-color: var(--text);
+		color: var(--text);
+		font-weight: 600;
+	}
+	.tab:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: -2px;
+		border-radius: 6px;
+	}
+</style>

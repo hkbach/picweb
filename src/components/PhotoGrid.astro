@@ -1,0 +1,134 @@
+---
+import PhotoCard from './PhotoCard.astro';
+import type { Photo } from '../data/photos';
+
+interface Props {
+	photos: Photo[];
+}
+
+const PAGE_SIZE = 12;
+
+const { photos } = Astro.props;
+const batches: Photo[][] = [];
+for (let i = 0; i < photos.length; i += PAGE_SIZE) batches.push(photos.slice(i, i + PAGE_SIZE));
+---
+
+<section class="container grid" aria-label="Photos" data-grid>
+	{
+		batches.map((batch, i) => (
+			<div class="batch" hidden={i > 0}>
+				{batch.map((photo) => <PhotoCard photo={photo} />)}
+			</div>
+		))
+	}
+
+	<div class="more" data-more hidden={batches.length < 2}>
+		<button type="button" class="more-btn" data-load-more>Load more</button>
+	</div>
+</section>
+
+<script>
+	// Placeholder data is rendered up front; each click reveals the next batch.
+	// Every batch has its own CSS columns, so cards already on screen never move.
+	const grid = document.querySelector<HTMLElement>('[data-grid]');
+	const more = grid?.querySelector<HTMLElement>('[data-more]');
+	const button = grid?.querySelector<HTMLButtonElement>('[data-load-more]');
+
+	if (grid && more && button) {
+		// Guests may load this many extra batches; after that they must log in.
+		const FREE_LOADS = 1;
+		let loads = 0;
+
+		button.addEventListener('click', () => {
+			if (loads >= FREE_LOADS && document.documentElement.dataset.auth === 'guest') {
+				document.querySelector<HTMLElement>('[data-open-login]')?.click();
+				return;
+			}
+			const batch = grid.querySelector<HTMLElement>('.batch[hidden]');
+			if (!batch) return;
+			batch.hidden = false;
+			loads++;
+			batch.querySelector<HTMLElement>('a')?.focus({ preventScroll: true });
+			if (!grid.querySelector('.batch[hidden]')) more.hidden = true;
+		});
+	}
+</script>
+
+<style>
+	.grid {
+		padding-top: 32px;
+		padding-bottom: 48px;
+	}
+	.batch {
+		columns: 1;
+		column-gap: var(--gutter);
+	}
+	.batch:not(:first-of-type) {
+		animation: batch-in 0.35s ease both;
+	}
+	@keyframes batch-in {
+		from {
+			opacity: 0;
+			transform: translateY(16px);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.batch:not(:first-of-type) {
+			animation: none;
+		}
+	}
+	/* Mobile layout chosen with the toggle under the topics nav. */
+	@media (max-width: 639px) {
+		:global(html[data-cols='2']) .batch {
+			columns: 2;
+		}
+	}
+	@media (min-width: 640px) {
+		.batch {
+			columns: 2;
+		}
+	}
+	@media (min-width: 1000px) {
+		.batch {
+			columns: 3;
+		}
+	}
+	.more {
+		display: flex;
+		justify-content: center;
+		padding-top: 8px;
+	}
+	.more[hidden] {
+		display: none;
+	}
+	.more-btn {
+		min-width: 200px;
+		height: 48px;
+		padding: 0 32px;
+		border: 1.5px solid var(--text);
+		border-radius: 999px;
+		background: transparent;
+		color: var(--text);
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		transition: background 0.15s, color 0.15s, transform 0.1s;
+	}
+	.more-btn:hover {
+		background: var(--text);
+		color: #fff;
+	}
+	.more-btn:active {
+		transform: scale(0.97);
+	}
+	.more-btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 3px;
+	}
+	@media (max-width: 600px) {
+		.more-btn {
+			width: 100%;
+			height: 52px;
+		}
+	}
+</style>

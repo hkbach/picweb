@@ -1,0 +1,133 @@
+---
+import Layout from './Layout.astro';
+import Header from '../components/Header.astro';
+
+interface Props {
+	title: string;
+	heading: string;
+}
+
+const { title, heading } = Astro.props;
+const path = Astro.url.pathname.replace(/\/$/, '') || '/';
+
+// `match` lets a page outside the menu (such as an album's Edit page) keep its parent item highlighted.
+const items: Array<{ href: string; label: string; match?: RegExp }> = [
+	{ href: '/admin/crawling', label: 'Crawling' },
+	{ href: '/admin/photos', label: 'Downloaded photos' },
+	{ href: '/admin/albums', label: 'Albums', match: /^\/admin\/albums\/\d+\/edit$/ },
+	{ href: '/admin/albums/new', label: 'Create new album' },
+	{ href: '/admin/categories', label: 'Categories' },
+	{ href: '/admin/users', label: 'Users' },
+];
+---
+
+<Layout title={`${title} – Admin – Picweb`} auth="user" noindex>
+	<Header />
+	<div class="container shell">
+		<aside class="side">
+			<p class="badge">Admin</p>
+			<nav class="menu" aria-label="Admin">
+				{
+					items.map((item) => (
+						<a href={item.href} class="item" aria-current={path === item.href || item.match?.test(path) ? 'page' : undefined}>
+							{item.label}
+						</a>
+					))
+				}
+			</nav>
+			<button type="button" class="item logout" data-logout>Log out</button>
+		</aside>
+		<main class="content">
+			<h1>{heading}</h1>
+			<slot />
+		</main>
+	</div>
+</Layout>
+
+<script>
+	// No real session exists yet, so logging out just returns to the public home page.
+	// When sign-in is added, this is where the session must be ended on the server first.
+	document.querySelector('[data-logout]')?.addEventListener('click', () => {
+		window.location.assign('/');
+	});
+</script>
+
+<style>
+	.shell {
+		display: grid;
+		grid-template-columns: 240px minmax(0, 1fr);
+		gap: 40px;
+		padding-top: 32px;
+		padding-bottom: 64px;
+	}
+	.badge {
+		margin: 0 0 12px;
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--muted);
+	}
+	.menu {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.item {
+		display: flex;
+		align-items: center;
+		height: 44px;
+		padding: 0 14px;
+		border-radius: 10px;
+		color: var(--muted);
+		font-weight: 500;
+		white-space: nowrap;
+		transition: background 0.15s, color 0.15s;
+	}
+	.item:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	.item[aria-current='page'] {
+		background: var(--text);
+		color: #fff;
+	}
+	.item:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	/* The same look as the menu items, as a button set apart just under the last one. */
+	.logout {
+		width: 100%;
+		margin-top: 16px;
+		border: 1px solid var(--border);
+		background: none;
+		font: inherit;
+		font-weight: 500;
+		justify-content: center;
+		cursor: pointer;
+	}
+	h1 {
+		margin: 0 0 24px;
+		font-size: 28px;
+	}
+	@media (max-width: 800px) {
+		.shell {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 16px;
+			padding-top: 20px;
+		}
+		.menu {
+			flex-direction: row;
+			overflow-x: auto;
+			scrollbar-width: none;
+		}
+		.menu::-webkit-scrollbar {
+			display: none;
+		}
+		/* The menu scrolls sideways here, so Log out sits on its own row where it is always in view. */
+		.logout {
+			margin-top: 8px;
+		}
+	}
+</style>

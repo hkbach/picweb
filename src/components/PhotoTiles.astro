@@ -1,0 +1,67 @@
+---
+import { photoUrl, type Photo } from '../data/photos';
+
+interface Props {
+	photos: Photo[];
+	empty?: string;
+}
+
+const { photos, empty = 'Nothing here yet.' } = Astro.props;
+---
+
+{
+	photos.length === 0 ? (
+		<p class="empty">{empty}</p>
+	) : (
+		<ul class="tiles">
+			{photos.map((p) => (
+				<li>
+					<a href="#" class="tile" data-photo-id={p.id} aria-label={`Open album: ${p.alt}`}>
+						<img src={photoUrl(p, 400)} alt={p.alt} width="400" height="400" loading="lazy" decoding="async" />
+					</a>
+				</li>
+			))}
+		</ul>
+	)
+}
+
+<style>
+	.tiles {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+		gap: 16px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.tile {
+		display: block;
+		aspect-ratio: 1;
+		border-radius: 8px;
+		overflow: hidden;
+		background: var(--bg-soft);
+	}
+	.tile img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		transition: transform 0.25s ease;
+	}
+	.tile:hover img {
+		transform: scale(1.04);
+	}
+	.tile:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.empty {
+		margin: 0;
+		color: var(--muted);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.tile img {
+			transition: none;
+		}
+	}
+</style>

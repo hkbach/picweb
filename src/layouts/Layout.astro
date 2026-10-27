@@ -1,0 +1,38 @@
+---
+import '../styles/global.css';
+import CookieBanner from '../components/CookieBanner.astro';
+
+interface Props {
+	title: string;
+	description?: string;
+	// 'guest' on public pages; account pages pass 'user'. There is no real session yet.
+	auth?: 'guest' | 'user';
+	// Keep a page out of search engines (used by admin pages).
+	noindex?: boolean;
+}
+
+const {
+	title,
+	description = 'Free high-resolution photos, shared by creators.',
+	auth = 'guest',
+	noindex = false,
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en" data-auth={auth}>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="description" content={description} />
+		{noindex && <meta name="robots" content="noindex, nofollow" />}
+		<meta name="generator" content={Astro.generator} />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<title>{title}</title>
+	</head>
+	<body>
+		<slot />
+		{/* Admin pages are noindex and internal: visitors never see the notice there. */}
+		{!noindex && <CookieBanner />}
+	</body>
+</html>

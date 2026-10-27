@@ -1,0 +1,104 @@
+---
+import AccountLayout from '../../layouts/AccountLayout.astro';
+import PhotoTiles from '../../components/PhotoTiles.astro';
+import { fullName, likedPhotos, favoritePhotos } from '../../data/account';
+
+const stats = [
+	{ label: 'Liked photos', value: likedPhotos.length, href: '/account/liked' },
+	{ label: 'Favorites', value: favoritePhotos.length, href: '/account/favorites' },
+];
+---
+
+<AccountLayout title="Dashboard" heading="Dashboard">
+	<p class="welcome">Welcome back, <strong data-user-name>{fullName}</strong>.</p>
+
+	<ul class="stats">
+		{
+			stats.map((s) => (
+				<li>
+					<a href={s.href} class="stat">
+						<span class="value">{s.value}</span>
+						<span class="label">{s.label}</span>
+					</a>
+				</li>
+			))
+		}
+	</ul>
+
+	<section>
+		<div class="row">
+			<h2>Recently liked</h2>
+			<a href="/account/liked" class="more">View all</a>
+		</div>
+		<PhotoTiles photos={likedPhotos.slice(0, 6)} empty="You haven't liked any photos yet." />
+	</section>
+
+	<section>
+		<div class="row">
+			<h2>Recent favorites</h2>
+			<a href="/account/favorites" class="more">View all</a>
+		</div>
+		<PhotoTiles photos={favoritePhotos.slice(0, 6)} empty="You haven't added any favorites yet." />
+	</section>
+</AccountLayout>
+
+<style>
+	.welcome {
+		margin: -8px 0 24px;
+		color: var(--muted);
+	}
+	.welcome strong {
+		color: var(--text);
+	}
+	.stats {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+		gap: 16px;
+		margin: 0 0 40px;
+		padding: 0;
+		list-style: none;
+	}
+	.stat {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		padding: 20px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	.stat:hover {
+		border-color: var(--text);
+		box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+	}
+	.value {
+		font-size: 32px;
+		font-weight: 700;
+		line-height: 1.1;
+	}
+	.label {
+		font-size: 14px;
+		color: var(--muted);
+	}
+	section {
+		margin-bottom: 40px;
+	}
+	.row {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		margin-bottom: 16px;
+	}
+	h2 {
+		margin: 0;
+		font-size: 20px;
+	}
+	.more {
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.more:hover {
+		color: var(--text);
+		text-decoration: underline;
+	}
+</style>

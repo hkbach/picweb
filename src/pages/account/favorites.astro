@@ -1,0 +1,9 @@
+---
+import AccountLayout from '../../layouts/AccountLayout.astro';
+import PhotoTiles from '../../components/PhotoTiles.astro';
+import { favoritePhotos } from '../../data/account';
+---
+
+<AccountLayout title="Favorites" heading="Favorites">
+	<PhotoTiles photos={favoritePhotos} empty="You haven't added any favorites yet." />
+</AccountLayout>

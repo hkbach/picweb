@@ -1,0 +1,61 @@
+<div class="container toggle" role="group" aria-label="Photo layout" data-view-toggle>
+	<button type="button" class="opt" data-cols="1" aria-pressed="true" aria-label="One photo per row">
+		<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+			<rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
+		</svg>
+	</button>
+	<button type="button" class="opt" data-cols="2" aria-pressed="false" aria-label="Two photos per row">
+		<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+			<rect x="3" y="4" width="8" height="16" rx="1.5" fill="none" stroke="currentColor" stroke-width="2" />
+			<rect x="13" y="4" width="8" height="16" rx="1.5" fill="none" stroke="currentColor" stroke-width="2" />
+		</svg>
+	</button>
+</div>
+
+<script>
+	// The grid reads `data-cols` on <html>; absent means one photo per row.
+	const toggle = document.querySelector<HTMLElement>('[data-view-toggle]');
+
+	toggle?.querySelectorAll<HTMLButtonElement>('.opt').forEach((btn) => {
+		btn.addEventListener('click', () => {
+			document.documentElement.dataset.cols = btn.dataset.cols;
+			toggle.querySelectorAll('.opt').forEach((o) => {
+				o.setAttribute('aria-pressed', String(o === btn));
+			});
+		});
+	});
+</script>
+
+<style>
+	.toggle {
+		display: none;
+		justify-content: flex-end;
+		gap: 8px;
+		padding-top: 12px;
+	}
+	.opt {
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		background: #fff;
+		color: var(--muted);
+		transition: background 0.15s, color 0.15s, border-color 0.15s;
+	}
+	.opt[aria-pressed='true'] {
+		border-color: var(--text);
+		background: var(--text);
+		color: #fff;
+	}
+	.opt:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	@media (max-width: 639px) {
+		.toggle {
+			display: flex;
+		}
+	}
+</style>

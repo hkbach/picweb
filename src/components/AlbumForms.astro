@@ -1,0 +1,1222 @@
+---
+import CategoryPicker from './CategoryPicker.astro';
+import { categories } from '../data/categories';
+import type { AlbumType } from '../data/albums';
+
+export interface InitialAlbum {
+	id: number;
+	title: string;
+	categoryIds: string[];
+	/** Index in `photos` of the Homepage thumbnail. */
+	coverIndex: number;
+	photos: Array<{ url: string; alt: string }>;
+}
+
+interface Props {
+	/** "create" shows both tabs; "edit" shows only the form matching the album's original type. */
+	mode: 'create' | 'edit';
+	type?: AlbumType;
+	album?: InitialAlbum;
+}
+
+const { mode, type, album } = Astro.props;
+const editing = mode === 'edit';
+const showUrl = !editing || type === 'crawling';
+const showUpload = !editing || type === 'uploaded';
+const submitLabel = editing ? 'Save changes' : 'Create album';
+// Escape "<" so the data can never close the script tag it is embedded in.
+const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\u003c') : '';
+---
+
+{
+	!editing && (
+		<div class="tabs" role="tablist" aria-label="How to add photos" id="album-tabs">
+			<button type="button" class="tab" role="tab" id="tab-url" aria-controls="panel-url" aria-selected="true" data-tab="url">
+				From URLs
+			</button>
+			<button type="button" class="tab" role="tab" id="tab-upload" aria-controls="panel-upload" aria-selected="false" tabindex="-1" data-tab="upload">
+				Upload from device
+			</button>
+		</div>
+	)
+}
+
+{
+	showUrl && (
+		<div role="tabpanel" id="panel-url" aria-labelledby={editing ? undefined : 'tab-url'}>
+			<form class="album-form" id="album-form" novalidate>
+				<label class="field">
+					<span class="label">Album title</span>
+					<input id="album-title" name="title" type="text" maxlength="80" autocomplete="off" required value={album?.title ?? ''} />
+				</label>
+
+				<CategoryPicker id="url-cat" categories={categories} selected={album?.categoryIds} />
+
+				<section class="photos" aria-labelledby="photos-title">
+					<div class="photos-head">
+						<h2 id="photos-title">Photos</h2>
+						<p class="count" id="photo-count" aria-live="polite" />
+					</div>
+					<p class="hint">
+						Add a direct link to each image file (http:// or https://). The album needs at least one photo. Pick one photo as the
+						album's thumbnail on the Homepage; the first photo is used by default.
+					</p>
+					<ol class="rows" id="photo-rows" />
+					<button type="button" class="btn secondary" id="add-photo">
+						+ Add photo
+					</button>
+				</section>
+
+				<div class="footer">
+					<button type="submit" class="btn primary" id="submit-album">
+						{submitLabel}
+					</button>
+					{!editing && (
+						<button type="button" class="btn ghost" id="clear-album">
+							Clear
+						</button>
+					)}
+					<p class="status" id="album-status" role="status" />
+				</div>
+			</form>
+		</div>
+	)
+}
+
+{
+	showUpload && (
+		<div role="tabpanel" id="panel-upload" aria-labelledby={editing ? undefined : 'tab-upload'} hidden={!editing}>
+			<form class="album-form" id="up-form" novalidate>
+				<label class="field">
+					<span class="label">Album title</span>
+					<input id="up-title" name="title" type="text" maxlength="80" autocomplete="off" required value={album?.title ?? ''} />
+				</label>
+
+				<CategoryPicker id="up-cat" categories={categories} selected={album?.categoryIds} />
+
+				<section class="photos" aria-labelledby="up-photos-title">
+					<div class="photos-head">
+						<h2 id="up-photos-title">Photos</h2>
+						<p class="count" id="up-count" aria-live="polite" />
+					</div>
+					<p class="hint">
+						JPG, PNG, WebP or GIF, up to 10 MB each, at most 50 photos. Pick one photo as the album's thumbnail on the Homepage; the
+						first photo is used by default.
+						{editing && ' Photos already in the album stay unless you remove them; you can add more.'}
+					</p>
+
+					<div class="drop" id="up-drop">
+						<p class="drop-text">Drag and drop images here, or</p>
+						<button type="button" class="btn secondary" id="up-choose">
+							Choose photos
+						</button>
+						<input id="up-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+					</div>
+
+					<ol class="rows" id="up-rows" />
+				</section>
+
+				<div class="footer">
+					<button type="submit" class="btn primary" id="up-submit">
+						{submitLabel}
+					</button>
+					{!editing && (
+						<button type="button" class="btn ghost" id="up-clear">
+							Clear
+						</button>
+					)}
+					<p class="status" id="up-status" role="status" />
+				</div>
+			</form>
+		</div>
+	)
+}
+
+<template id="upload-row">
+	<li class="photo">
+		<div class="preview">
+			<img alt="" />
+			<span class="badge">Cover</span>
+		</div>
+		<div class="photo-fields">
+			<p class="num"></p>
+			<p class="filename"></p>
+			<label class="field">
+				<span class="label">Alt text <span class="opt">(optional)</span></span>
+				<input class="alt" type="text" maxlength="150" placeholder="Describe the photo for screen readers" autocomplete="off" />
+			</label>
+			<label class="cover">
+				<input class="cover-radio" type="radio" name="cover" />
+				<span>Use as Homepage thumbnail</span>
+			</label>
+			<p class="dims"></p>
+			<p class="row-error" role="alert"></p>
+		</div>
+		<button type="button" class="remove" aria-label="Remove photo">×</button>
+	</li>
+</template>
+
+<template id="photo-row">
+	<li class="photo">
+		<div class="preview">
+			<img alt="" hidden />
+			<span class="placeholder">No image</span>
+			<span class="badge">Cover</span>
+		</div>
+		<div class="photo-fields">
+			<p class="num"></p>
+			<label class="field">
+				<span class="label">Image URL</span>
+				<input class="url" type="url" inputmode="url" placeholder="https://example.com/photo.jpg" autocomplete="off" spellcheck="false" />
+			</label>
+			<label class="field">
+				<span class="label">Alt text <span class="opt">(optional)</span></span>
+				<input class="alt" type="text" maxlength="150" placeholder="Describe the photo for screen readers" autocomplete="off" />
+			</label>
+			<label class="cover">
+				<input class="cover-radio" type="radio" name="cover" />
+				<span>Use as Homepage thumbnail</span>
+			</label>
+			<p class="dims"></p>
+			<p class="row-error" role="alert"></p>
+		</div>
+		<button type="button" class="remove" aria-label="Remove photo">×</button>
+	</li>
+</template>
+
+{initialJson && <script type="application/json" id="album-initial" is:inline set:html={initialJson} />}
+
+{
+	!editing && (
+		<dialog id="clear-dialog" class="dialog" aria-labelledby="clear-title" aria-describedby="clear-text">
+			<h2 id="clear-title">Clear this tab?</h2>
+			<p class="dialog-text" id="clear-text" />
+			<div class="dialog-actions">
+				<button type="button" class="dialog-btn ghost" id="clear-cancel" autofocus>
+					Cancel
+				</button>
+				<button type="button" class="dialog-btn danger" id="clear-confirm">
+					Clear
+				</button>
+			</div>
+		</dialog>
+	)
+}
+
+
+<script>
+	import { createAlbum, updateAlbum, type AlbumPhotoInput } from '../scripts/albums-api';
+	import { MAX_ALBUM_PHOTOS as MAX_PHOTOS, takeDraft } from '../scripts/album-draft';
+	import { flagPicker, hasCategoryOptions, selectedCategoryIds } from '../scripts/category-picker';
+	import { readInitialAlbum } from '../scripts/album-initial';
+	import { askToClear, wireClearDialog } from '../scripts/confirm-clear';
+
+	// This form is absent when editing an album that was created by uploading files.
+	const formElement = document.querySelector<HTMLFormElement>('#album-form');
+	if (formElement) initUrlForm(formElement);
+
+	function initUrlForm(form: HTMLFormElement) {
+	const titleInput = form.querySelector<HTMLInputElement>('#album-title')!;
+	const rows = form.querySelector<HTMLOListElement>('#photo-rows')!;
+	const addButton = form.querySelector<HTMLButtonElement>('#add-photo')!;
+	const submitButton = form.querySelector<HTMLButtonElement>('#submit-album')!;
+	const countLabel = form.querySelector<HTMLElement>('#photo-count')!;
+	const status = form.querySelector<HTMLElement>('#album-status')!;
+	const template = document.querySelector<HTMLTemplateElement>('#photo-row')!;
+
+	const isHttpUrl = (value: string) => {
+		try {
+			const { protocol } = new URL(value);
+			return protocol === 'http:' || protocol === 'https:';
+		} catch {
+			return false;
+		}
+	};
+
+	const say = (message: string, isError = false) => {
+		status.textContent = message;
+		status.classList.toggle('is-error', isError);
+	};
+
+	// Keeps "Photo N" labels, the photo count and the remove buttons in step with the rows.
+	const refresh = () => {
+		const items = Array.from(rows.children) as HTMLElement[];
+		items.forEach((row, i) => {
+			row.querySelector<HTMLElement>('.num')!.textContent = `Photo ${i + 1}`;
+			row.querySelector<HTMLButtonElement>('.remove')!.disabled = items.length === 1;
+		});
+		countLabel.textContent = `${items.length} photo${items.length === 1 ? '' : 's'}`;
+		addButton.disabled = items.length >= MAX_PHOTOS;
+
+		// Exactly one photo is the cover: fall back to the first one (e.g. after the cover is removed).
+		const radios = items.map((row) => row.querySelector<HTMLInputElement>('.cover-radio')!);
+		if (!radios.some((r) => r.checked)) radios[0].checked = true;
+		items.forEach((row, i) => row.classList.toggle('is-cover', radios[i].checked));
+	};
+
+	const setRowError = (row: HTMLElement, message: string) => {
+		row.querySelector<HTMLElement>('.row-error')!.textContent = message;
+		row.querySelector<HTMLInputElement>('.url')!.setAttribute('aria-invalid', String(Boolean(message)));
+	};
+
+	const addRow = () => {
+		const row = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+		const url = row.querySelector<HTMLInputElement>('.url')!;
+		const pic = row.querySelector<HTMLImageElement>('.preview img')!;
+		const placeholder = row.querySelector<HTMLElement>('.placeholder')!;
+		const dims = row.querySelector<HTMLElement>('.dims')!;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+
+		const clearPreview = (label: string) => {
+			pic.hidden = true;
+			pic.removeAttribute('src');
+			placeholder.hidden = false;
+			placeholder.textContent = label;
+			delete row.dataset.width;
+			delete row.dataset.height;
+			dims.textContent = '';
+		};
+
+		// The preview also measures the image: the album viewer needs its natural size.
+		pic.addEventListener('load', () => {
+			pic.hidden = false;
+			placeholder.hidden = true;
+			row.dataset.width = String(pic.naturalWidth);
+			row.dataset.height = String(pic.naturalHeight);
+			dims.textContent = pic.naturalWidth > 0 ? `${pic.naturalWidth} × ${pic.naturalHeight}` : 'Size unknown';
+		});
+		pic.addEventListener('error', () => clearPreview('Could not load'));
+		pic.referrerPolicy = 'no-referrer'; // do not tell the image host which page this is
+
+		const updatePreview = () => {
+			const value = url.value.trim();
+			setRowError(row, '');
+			if (!value) return clearPreview('No image');
+			if (!isHttpUrl(value)) return clearPreview('Invalid URL');
+			pic.src = value;
+		};
+		url.addEventListener('input', () => {
+			clearTimeout(timer);
+			timer = setTimeout(updatePreview, 400);
+		});
+		url.addEventListener('change', updatePreview);
+
+		row.querySelector('.cover-radio')!.addEventListener('change', refresh);
+
+		row.querySelector('.remove')!.addEventListener('click', () => {
+			const neighbour = row.nextElementSibling ?? row.previousElementSibling;
+			row.remove();
+			refresh();
+			(neighbour?.querySelector<HTMLElement>('.url') ?? addButton).focus();
+		});
+
+		rows.append(row);
+		refresh();
+		return row;
+	};
+
+	const reset = () => {
+		form.reset();
+		rows.replaceChildren();
+		addRow();
+	};
+
+	addButton.addEventListener('click', () => addRow().querySelector<HTMLElement>('.url')!.focus());
+
+	// ---- Clear: wipe everything entered on this tab (only when creating; an edited album has nothing to clear)
+	const clearButton = form.querySelector<HTMLButtonElement>('#clear-album');
+	if (clearButton) {
+		wireClearDialog();
+		const hasContent = () => {
+			const first = rows.firstElementChild as HTMLElement | null;
+			const typedInRow = first && (first.querySelector<HTMLInputElement>('.url')!.value.trim() !== '' || first.querySelector<HTMLInputElement>('.alt')!.value.trim() !== '');
+			const categoriesChanged = Array.from(form.querySelectorAll<HTMLInputElement>('[data-picker] input')).some((box) => box.checked !== box.defaultChecked);
+			return titleInput.value.trim() !== '' || rows.children.length > 1 || Boolean(typedInRow) || categoriesChanged;
+		};
+		clearButton.addEventListener('click', async () => {
+			if (!hasContent()) return say('Nothing to clear.');
+			if (!(await askToClear('Everything entered on this tab will be removed: the title, the categories and all photo links.'))) return;
+			reset();
+			form.querySelector<HTMLElement>('[data-picker] [data-error]')?.replaceChildren();
+			say('Cleared.');
+			titleInput.focus();
+		});
+	}
+
+	// Editing: fill the form from the album. Creating: images sent from the Crawling page fill it,
+	// otherwise start with one empty photo.
+	const initial = readInitialAlbum();
+	const draft = initial ? null : takeDraft();
+	if (initial) {
+		for (const photo of initial.photos.slice(0, MAX_PHOTOS)) {
+			const row = addRow();
+			row.querySelector<HTMLInputElement>('.url')!.value = photo.url;
+			row.querySelector<HTMLInputElement>('.alt')!.value = photo.alt.slice(0, 150);
+			row.querySelector<HTMLInputElement>('.url')!.dispatchEvent(new Event('change')); // load the preview
+		}
+		const radios = rows.querySelectorAll<HTMLInputElement>('.cover-radio');
+		if (radios[initial.coverIndex]) radios[initial.coverIndex].checked = true;
+		refresh();
+	} else if (draft) {
+		const used = draft.photos.slice(0, MAX_PHOTOS);
+		titleInput.value = draft.title.slice(0, 80);
+		for (const photo of used) {
+			const row = addRow();
+			row.querySelector<HTMLInputElement>('.url')!.value = photo.url;
+			row.querySelector<HTMLInputElement>('.alt')!.value = photo.alt.slice(0, 150);
+			row.querySelector<HTMLInputElement>('.url')!.dispatchEvent(new Event('change')); // load the preview
+		}
+		const cut = draft.photos.length > used.length ? ` Only the first ${MAX_PHOTOS} were kept.` : '';
+		say(`Loaded ${used.length} image${used.length === 1 ? '' : 's'} from ${draft.source || 'the crawl'}.${cut} Review them, then create the album.`);
+	} else {
+		addRow();
+	}
+
+	form.addEventListener('submit', async (e) => {
+		e.preventDefault();
+
+		const title = titleInput.value.trim();
+		if (!title) {
+			say('Enter an album title.', true);
+			titleInput.focus();
+			return;
+		}
+
+		const categoryIds = selectedCategoryIds(form);
+		if (hasCategoryOptions(form) && categoryIds.length === 0) {
+			say('Select at least one category.', true);
+			flagPicker(form, 'Select at least one category.');
+			return;
+		}
+
+		// Validate every row, flag all problems, and focus the first one.
+		const items = Array.from(rows.children) as HTMLElement[];
+		const seen = new Set<string>();
+		const photos: AlbumPhotoInput[] = [];
+		let coverUrl = '';
+		let firstBad: HTMLInputElement | null = null;
+
+		for (const row of items) {
+			const urlInput = row.querySelector<HTMLInputElement>('.url')!;
+			const url = urlInput.value.trim();
+			let problem = '';
+			if (!url) problem = 'Enter the image URL.';
+			else if (!isHttpUrl(url)) problem = 'Enter a full URL starting with http:// or https://';
+			else if (seen.has(url)) problem = 'This image is already in the album.';
+			setRowError(row, problem);
+			if (problem) {
+				firstBad ??= urlInput;
+				continue;
+			}
+			seen.add(url);
+			if (row.querySelector<HTMLInputElement>('.cover-radio')!.checked) coverUrl = url;
+			photos.push({
+				url,
+				alt: row.querySelector<HTMLInputElement>('.alt')!.value.trim(),
+				width: Number(row.dataset.width ?? 0),
+				height: Number(row.dataset.height ?? 0),
+			});
+		}
+		if (firstBad) {
+			say('Fix the highlighted photos and try again.', true);
+			firstBad.focus();
+			return;
+		}
+
+		submitButton.disabled = true;
+		say(initial ? 'Saving changes…' : 'Creating album…');
+		const result = initial
+			? await updateAlbum({ id: initial.id, title, type: 'crawling', categoryIds, coverUrl, photos })
+			: await createAlbum({ title, type: 'crawling', categoryIds, coverUrl, photos });
+		submitButton.disabled = false;
+
+		if (result.ok) {
+			if (initial) return say('Changes saved.');
+			reset();
+			return say(`Album “${title}” created with ${photos.length} photo${photos.length === 1 ? '' : 's'}.`);
+		}
+		if (result.reason === 'not-configured') {
+			return say(initial ? 'The changes were not saved: no album service is connected yet.' : 'The album was not saved: no album service is connected yet.', true);
+		}
+		say(initial ? 'The changes could not be saved. Please try again.' : 'The album could not be saved. Please try again.', true);
+	});
+	}
+</script>
+
+<script>
+	// Tabs: "From URLs" and "Upload from device". The URL hash (#upload) lets a tab be linked to.
+	// The tabs only exist when creating; an album being edited shows just the form for its own type.
+	const list = document.querySelector<HTMLElement>('#album-tabs');
+	if (list) initTabs(list);
+
+	function initTabs(list: HTMLElement) {
+	const tabs = Array.from(list.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+
+	const select = (name: string, focus = false) => {
+		for (const tab of tabs) {
+			const on = tab.dataset.tab === name;
+			tab.setAttribute('aria-selected', String(on));
+			tab.tabIndex = on ? 0 : -1;
+			document.querySelector<HTMLElement>(`#${tab.getAttribute('aria-controls')}`)!.hidden = !on;
+			if (on && focus) tab.focus();
+		}
+		history.replaceState(null, '', name === 'url' ? location.pathname : `#${name}`);
+	};
+
+	tabs.forEach((tab) => tab.addEventListener('click', () => select(tab.dataset.tab!)));
+	list.addEventListener('keydown', (e) => {
+		const i = tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+		const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+		if (next === undefined) return;
+		e.preventDefault();
+		select(tabs[(next + tabs.length) % tabs.length].dataset.tab!, true);
+	});
+
+	if (location.hash === '#upload') select('upload');
+	}
+</script>
+
+<script>
+	import { createAlbumFromUploads, updateAlbumWithUploads, type UpdatedUploadPhoto, type UploadedPhotoInput } from '../scripts/albums-api';
+	import { MAX_ALBUM_PHOTOS as MAX_PHOTOS } from '../scripts/album-draft';
+	import { flagPicker, hasCategoryOptions, selectedCategoryIds } from '../scripts/category-picker';
+	import { readInitialAlbum, type InitialAlbumData } from '../scripts/album-initial';
+	import { takeDownloadedDraft, readDownloadedNames, forgetDownloadedNames } from '../scripts/album-draft';
+	import { deleteDownloadedPhotos } from '../scripts/photos-api';
+	import { askToClear as askToClearUpload, wireClearDialog as wireClearDialogUpload } from '../scripts/confirm-clear';
+
+	const MAX_BYTES = 10 * 1024 * 1024;
+	const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+
+	// This form is absent when editing an album that was created from image links.
+	const formElement = document.querySelector<HTMLFormElement>('#up-form');
+	if (formElement) initUploadForm(formElement);
+
+	function initUploadForm(form: HTMLFormElement) {
+	const titleInput = form.querySelector<HTMLInputElement>('#up-title')!;
+	const rows = form.querySelector<HTMLOListElement>('#up-rows')!;
+	const drop = form.querySelector<HTMLElement>('#up-drop')!;
+	const chooseButton = form.querySelector<HTMLButtonElement>('#up-choose')!;
+	const fileInput = form.querySelector<HTMLInputElement>('#up-file')!;
+	const submitButton = form.querySelector<HTMLButtonElement>('#up-submit')!;
+	const countLabel = form.querySelector<HTMLElement>('#up-count')!;
+	const status = form.querySelector<HTMLElement>('#up-status')!;
+	const template = document.querySelector<HTMLTemplateElement>('#upload-row')!;
+
+	// Each row keeps its File here; the object URL is kept so it can be released again.
+	const files = new Map<HTMLElement, { file: File; objectUrl: string }>();
+
+	const say = (message: string, isError = false) => {
+		status.textContent = message;
+		status.classList.toggle('is-error', isError);
+	};
+
+	const formatSize = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+
+	const refresh = () => {
+		const items = Array.from(rows.children) as HTMLElement[];
+		items.forEach((row, i) => (row.querySelector<HTMLElement>('.num')!.textContent = `Photo ${i + 1}`));
+		countLabel.textContent = `${items.length} photo${items.length === 1 ? '' : 's'}`;
+		chooseButton.disabled = items.length >= MAX_PHOTOS;
+
+		// Exactly one cover; fall back to the first photo (for example after the cover is removed).
+		const radios = items.map((row) => row.querySelector<HTMLInputElement>('.cover-radio')!);
+		if (radios.length > 0 && !radios.some((r) => r.checked)) radios[0].checked = true;
+		items.forEach((row, i) => row.classList.toggle('is-cover', radios[i].checked));
+	};
+
+	const removeRow = (row: HTMLElement) => {
+		const entry = files.get(row);
+		if (entry) URL.revokeObjectURL(entry.objectUrl);
+		files.delete(row);
+		row.remove();
+		refresh();
+	};
+
+	const addRow = (file: File) => {
+		const row = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+		const pic = row.querySelector<HTMLImageElement>('.preview img')!;
+		const dims = row.querySelector<HTMLElement>('.dims')!;
+		const objectUrl = URL.createObjectURL(file);
+		files.set(row, { file, objectUrl });
+
+		row.querySelector<HTMLElement>('.filename')!.textContent = `${file.name} · ${formatSize(file.size)}`;
+
+		// Decoding the picture is also the check that the file really is an image.
+		pic.addEventListener('load', () => {
+			row.dataset.width = String(pic.naturalWidth);
+			row.dataset.height = String(pic.naturalHeight);
+			dims.textContent = pic.naturalWidth > 0 ? `${pic.naturalWidth} × ${pic.naturalHeight}` : '';
+		});
+		pic.addEventListener('error', () => {
+			row.dataset.broken = '1';
+			pic.hidden = true;
+			row.querySelector<HTMLElement>('.row-error')!.textContent = 'This file could not be read as an image. Remove it.';
+		});
+		pic.src = objectUrl;
+
+		row.querySelector('.cover-radio')!.addEventListener('change', refresh);
+		row.querySelector('.remove')!.addEventListener('click', () => {
+			const neighbour = row.nextElementSibling ?? row.previousElementSibling;
+			removeRow(row);
+			(neighbour?.querySelector<HTMLElement>('.alt') ?? chooseButton).focus();
+		});
+
+		rows.append(row);
+		refresh();
+	};
+
+	// A photo already stored in the album being edited: shown like an upload, but there is no File.
+	const addStoredRow = (photo: { url: string; alt: string }, label = 'Already in this album') => {
+		const row = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+		const pic = row.querySelector<HTMLImageElement>('.preview img')!;
+		const dims = row.querySelector<HTMLElement>('.dims')!;
+		row.dataset.existingUrl = photo.url;
+
+		row.querySelector<HTMLElement>('.filename')!.textContent = label;
+		row.querySelector<HTMLInputElement>('.alt')!.value = photo.alt.slice(0, 150);
+
+		pic.addEventListener('load', () => {
+			row.dataset.width = String(pic.naturalWidth);
+			row.dataset.height = String(pic.naturalHeight);
+			dims.textContent = pic.naturalWidth > 0 ? `${pic.naturalWidth} × ${pic.naturalHeight}` : '';
+		});
+		// Not the person's file, so a preview that fails to load must not block saving.
+		pic.addEventListener('error', () => {
+			pic.hidden = true;
+			row.querySelector<HTMLElement>('.row-error')!.textContent = 'This photo could not be previewed.';
+		});
+		pic.referrerPolicy = 'no-referrer';
+		pic.src = photo.url;
+
+		row.querySelector('.cover-radio')!.addEventListener('change', refresh);
+		row.querySelector('.remove')!.addEventListener('click', () => {
+			const neighbour = row.nextElementSibling ?? row.previousElementSibling;
+			removeRow(row);
+			(neighbour?.querySelector<HTMLElement>('.alt') ?? chooseButton).focus();
+		});
+
+		rows.append(row);
+		refresh();
+	};
+
+	const addFiles = (incoming: File[]) => {
+		const skipped: string[] = [];
+		let added = 0;
+		for (const file of incoming) {
+			const duplicate = Array.from(files.values()).some(
+				(e) => e.file.name === file.name && e.file.size === file.size && e.file.lastModified === file.lastModified,
+			);
+			if (duplicate) skipped.push(`${file.name} (already added)`);
+			else if (rows.children.length >= MAX_PHOTOS) skipped.push(`${file.name} (limit of ${MAX_PHOTOS} photos)`);
+			else if (!ALLOWED.has(file.type)) skipped.push(`${file.name} (not a JPG, PNG, WebP or GIF image)`);
+			else if (file.size > MAX_BYTES) skipped.push(`${file.name} (over 10 MB)`);
+			else {
+				addRow(file);
+				added++;
+			}
+		}
+		const parts: string[] = [];
+		if (added > 0) parts.push(`Added ${added} photo${added === 1 ? '' : 's'}.`);
+		if (skipped.length > 0) parts.push(`Skipped: ${skipped.join('; ')}.`);
+		say(parts.join(' '), skipped.length > 0 && added === 0);
+	};
+
+	chooseButton.addEventListener('click', () => fileInput.click());
+	fileInput.addEventListener('change', () => {
+		addFiles(Array.from(fileInput.files ?? []));
+		fileInput.value = ''; // lets the same file be chosen again after removing it
+	});
+
+	drop.addEventListener('dragover', (e) => {
+		e.preventDefault();
+		drop.classList.add('is-over');
+	});
+	drop.addEventListener('dragleave', () => drop.classList.remove('is-over'));
+	drop.addEventListener('drop', (e) => {
+		e.preventDefault();
+		drop.classList.remove('is-over');
+		addFiles(Array.from(e.dataTransfer?.files ?? []));
+	});
+
+	const reset = () => {
+		Array.from(rows.children).forEach((row) => removeRow(row as HTMLElement));
+		form.reset();
+		refresh();
+	};
+
+	// ---- Clear: wipe this tab and delete the photos the Crawling page downloaded to the server.
+	const clearUpload = form.querySelector<HTMLButtonElement>('#up-clear');
+	if (clearUpload) {
+		wireClearDialogUpload();
+		const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+		const hasContent = () =>
+			titleInput.value.trim() !== '' ||
+			rows.children.length > 0 ||
+			Array.from(form.querySelectorAll<HTMLInputElement>('[data-picker] input')).some((box) => box.checked !== box.defaultChecked);
+
+		clearUpload.addEventListener('click', async () => {
+			// Every photo this tab has downloaded, including ones already taken off the list or from before a reload.
+			const names = readDownloadedNames();
+			if (!hasContent() && names.length === 0) return say('Nothing to clear.');
+
+			const removed = 'Everything entered on this tab will be removed.';
+			const confirmed = await askToClearUpload(
+				names.length > 0
+					? `${removed} The ${count(names.length, 'photo')} downloaded from the Crawling page will also be permanently deleted from the server.`
+					: removed,
+			);
+			if (!confirmed) return;
+
+			clearUpload.disabled = true;
+			say('Clearing…');
+			const report = names.length > 0 ? await deleteDownloadedPhotos(names) : { deleted: [], failed: [] };
+			// Names that could not be deleted stay remembered, so pressing Clear again retries them.
+			forgetDownloadedNames(report.deleted);
+			reset();
+			form.querySelector<HTMLElement>('[data-picker] [data-error]')?.replaceChildren();
+
+			const parts = ['Cleared.'];
+			if (report.deleted.length > 0) parts.push(`Deleted ${count(report.deleted.length, 'downloaded photo')} from the server.`);
+			if (report.failed.length > 0) parts.push(`${count(report.failed.length, 'downloaded photo')} could not be deleted. Press Clear again to retry.`);
+			say(parts.join(' '), report.failed.length > 0);
+			clearUpload.disabled = false;
+			titleInput.focus();
+		});
+	}
+
+	// Editing: start with the album's current photos and cover.
+	const initial: InitialAlbumData | null = readInitialAlbum();
+	if (initial) {
+		initial.photos.slice(0, MAX_PHOTOS).forEach((photo) => addStoredRow(photo));
+		const radios = rows.querySelectorAll<HTMLInputElement>('.cover-radio');
+		if (radios[initial.coverIndex]) radios[initial.coverIndex].checked = true;
+	}
+
+	// Creating: photos the Crawling page just downloaded arrive as saved files, listed like uploads.
+	const downloaded = initial ? null : takeDownloadedDraft();
+	if (downloaded) {
+		let host = '';
+		try {
+			host = new URL(downloaded.source).hostname;
+		} catch {
+			// a missing source just means a shorter label
+		}
+		const used = downloaded.photos.slice(0, MAX_PHOTOS);
+		titleInput.value = downloaded.title.slice(0, 80);
+		for (const photo of used) addStoredRow(photo, host ? `Downloaded from ${host}` : 'Downloaded');
+		const cut = downloaded.photos.length > used.length ? ` Only the first ${MAX_PHOTOS} were kept.` : '';
+		say(`${used.length} downloaded photo${used.length === 1 ? '' : 's'} loaded.${cut} Review them, then create the album.`);
+	}
+	refresh();
+
+	form.addEventListener('submit', async (e) => {
+		e.preventDefault();
+
+		const title = titleInput.value.trim();
+		if (!title) {
+			say('Enter an album title.', true);
+			titleInput.focus();
+			return;
+		}
+		const categoryIds = selectedCategoryIds(form);
+		if (hasCategoryOptions(form) && categoryIds.length === 0) {
+			say('Select at least one category.', true);
+			flagPicker(form, 'Select at least one category.');
+			return;
+		}
+		const items = Array.from(rows.children) as HTMLElement[];
+		if (items.length === 0) {
+			say('Add at least one photo.', true);
+			chooseButton.focus();
+			return;
+		}
+		const broken = items.find((row) => row.dataset.broken);
+		if (broken) {
+			say('Remove the files that could not be read as images and try again.', true);
+			broken.querySelector<HTMLElement>('.remove')!.focus();
+			return;
+		}
+
+		const common = (row: HTMLElement) => ({
+			alt: row.querySelector<HTMLInputElement>('.alt')!.value.trim(),
+			width: Number(row.dataset.width ?? 0),
+			height: Number(row.dataset.height ?? 0),
+		});
+		const coverIndex = Math.max(0, items.findIndex((row) => row.querySelector<HTMLInputElement>('.cover-radio')!.checked));
+
+		submitButton.disabled = true;
+		say(initial ? 'Saving changes…' : 'Creating album…');
+		let result;
+		if (initial) {
+			const photos: UpdatedUploadPhoto[] = items.map((row) =>
+				row.dataset.existingUrl
+					? { existingUrl: row.dataset.existingUrl, ...common(row) }
+					: { file: files.get(row)!.file, ...common(row) },
+			);
+			result = await updateAlbumWithUploads({ id: initial.id, title, type: 'uploaded', categoryIds, coverIndex, photos });
+		} else {
+			// A row is either a file chosen here or an image already saved on the server (downloaded earlier).
+			const photos: UploadedPhotoInput[] = items.map((row) =>
+				row.dataset.existingUrl ? { storedUrl: row.dataset.existingUrl, ...common(row) } : { file: files.get(row)!.file, ...common(row) },
+			);
+			result = await createAlbumFromUploads({ title, type: 'uploaded', categoryIds, coverIndex, photos });
+		}
+		// Nothing is deleted on any of these paths: the downloaded copies stay for another try.
+		if (!result.ok) {
+			submitButton.disabled = false;
+			if (result.reason === 'not-configured') {
+				return say(initial ? 'The changes were not saved: no album service is connected yet.' : 'The album was not saved: no album service is connected yet.', true);
+			}
+			return say(initial ? 'The changes could not be saved. Please try again.' : 'The album could not be saved. Please try again.', true);
+		}
+		if (initial) {
+			submitButton.disabled = false;
+			return say('Changes saved.');
+		}
+
+		// The host has confirmed that the album and all of its photos are stored, so the copies downloaded
+		// from the Crawling page are no longer needed. That includes any that were taken off the list.
+		const count = items.length;
+		if (clearUpload) clearUpload.disabled = true;
+		say('Album created. Removing the downloaded copies…');
+		const names = readDownloadedNames();
+		const report = names.length > 0 ? await deleteDownloadedPhotos(names) : { deleted: [], failed: [] };
+		// Names that could not be deleted stay remembered, so the Clear button can still remove them later.
+		forgetDownloadedNames(report.deleted);
+		reset();
+		submitButton.disabled = false;
+		if (clearUpload) clearUpload.disabled = false;
+
+		const plural = (n: number) => `${n} downloaded photo${n === 1 ? '' : 's'}`;
+		const parts = [`Album “${title}” created with ${count} photo${count === 1 ? '' : 's'}.`];
+		if (report.deleted.length > 0) parts.push(`Deleted ${plural(report.deleted.length)} from the server.`);
+		if (report.failed.length > 0) parts.push(`${plural(report.failed.length)} could not be deleted and ${report.failed.length === 1 ? 'is' : 'are'} still in the photos_dowloaded folder.`);
+		say(parts.join(' '), report.failed.length > 0);
+	});
+	}
+</script>
+
+<style>
+	.tabs {
+		display: flex;
+		gap: 4px;
+		max-width: 720px;
+		margin-bottom: 24px;
+		border-bottom: 1px solid var(--border);
+	}
+	.tab {
+		margin-bottom: -1px;
+		padding: 12px 18px;
+		border: 0;
+		border-bottom: 2px solid transparent;
+		background: none;
+		color: var(--muted);
+		font: inherit;
+		font-weight: 500;
+		transition: color 0.15s, border-color 0.15s;
+	}
+	.tab:hover {
+		color: var(--text);
+	}
+	.tab[aria-selected='true'] {
+		border-bottom-color: var(--text);
+		color: var(--text);
+		font-weight: 600;
+	}
+	.tab:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: -2px;
+		border-radius: 6px;
+	}
+	.drop {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+		margin-bottom: 16px;
+		padding: 28px 16px;
+		border: 2px dashed var(--border);
+		border-radius: 12px;
+		text-align: center;
+		transition: border-color 0.15s, background 0.15s;
+	}
+	.drop.is-over {
+		border-color: var(--text);
+		background: var(--bg-soft);
+	}
+	.drop-text {
+		margin: 0;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.filename {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 500;
+		overflow-wrap: anywhere;
+	}
+	.album-form {
+		display: flex;
+		flex-direction: column;
+		gap: 32px;
+		max-width: 720px;
+	}
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		min-width: 0;
+	}
+	.label {
+		font-size: 14px;
+		font-weight: 500;
+	}
+	.opt {
+		font-weight: 400;
+		color: var(--muted);
+	}
+	input[type='text'],
+	input[type='url'] {
+		height: 44px;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		font: inherit;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	input:focus {
+		outline: 0;
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+	input[aria-invalid='true'] {
+		border-color: #c62828;
+	}
+
+	.photos-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		margin-bottom: 4px;
+	}
+	h2 {
+		margin: 0;
+		font-size: 18px;
+	}
+	.count {
+		margin: 0;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.hint {
+		margin: 0 0 16px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.rows {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin: 0 0 16px;
+		padding: 0;
+		list-style: none;
+	}
+	.photo {
+		position: relative;
+		display: grid;
+		grid-template-columns: 96px minmax(0, 1fr);
+		gap: 16px;
+		padding: 16px 48px 16px 16px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.preview {
+		position: relative;
+		display: grid;
+		place-items: center;
+		align-self: start;
+		width: 96px;
+		height: 96px;
+		border-radius: 8px;
+		overflow: hidden;
+		background: var(--bg-soft);
+		color: var(--muted);
+		font-size: 12px;
+		text-align: center;
+	}
+	.preview img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+	/* `display: block` above would otherwise override the hidden attribute. */
+	.preview img[hidden] {
+		display: none;
+	}
+	.photo-fields {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		min-width: 0;
+	}
+	.num {
+		margin: 0;
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--muted);
+	}
+	.cover {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: fit-content;
+		font-size: 13px;
+		cursor: pointer;
+	}
+	.cover input {
+		width: 16px;
+		height: 16px;
+		margin: 0;
+		accent-color: var(--text);
+	}
+	.cover input:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.badge {
+		display: none;
+		position: absolute;
+		top: 6px;
+		left: 6px;
+		padding: 2px 8px;
+		border-radius: 999px;
+		background: var(--text);
+		color: #fff;
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+	}
+	.is-cover {
+		border-color: var(--text);
+		box-shadow: 0 0 0 1px var(--text);
+	}
+	.is-cover .badge {
+		display: block;
+	}
+	.dims {
+		margin: 0;
+		font-size: 12px;
+		color: var(--muted);
+	}
+	.dims:empty,
+	.row-error:empty {
+		display: none;
+	}
+	.row-error {
+		margin: 0;
+		font-size: 13px;
+		color: #c62828;
+	}
+	.remove {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		display: grid;
+		place-items: center;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		border: 0;
+		border-radius: 50%;
+		background: none;
+		color: var(--muted);
+		font-size: 22px;
+		line-height: 1;
+		transition: background 0.15s, color 0.15s;
+	}
+	.remove:hover:not(:disabled) {
+		background: var(--bg-soft);
+		color: #c62828;
+	}
+	.remove:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+	.remove:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+
+	.footer {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 16px;
+	}
+	.status {
+		margin: 0;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.status.is-error {
+		color: #c62828;
+	}
+	.btn {
+		height: 44px;
+		padding: 0 24px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+	}
+	.btn:active:not(:disabled) {
+		transform: scale(0.97);
+	}
+	.btn:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.primary {
+		border: 0;
+		background: var(--text);
+		color: #fff;
+	}
+	.primary:hover:not(:disabled) {
+		background: #333;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+	.secondary {
+		border: 1.5px solid var(--text);
+		background: transparent;
+		color: var(--text);
+	}
+	.secondary:hover:not(:disabled) {
+		background: var(--text);
+		color: #fff;
+	}
+	.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.ghost:hover:not(:disabled) {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+
+	/* The Clear confirmation, in the same style as the other admin dialogs. */
+	.dialog {
+		width: min(440px, calc(100vw - 32px));
+		padding: 28px;
+		border: 0;
+		border-radius: 12px;
+		color: var(--text);
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+		opacity: 0;
+		transform: translateY(16px) scale(0.96);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open] {
+		opacity: 1;
+		transform: none;
+	}
+	.dialog::backdrop {
+		background: rgba(0, 0, 0, 0);
+		transition:
+			background 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open]::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+	}
+	@starting-style {
+		.dialog[open] {
+			opacity: 0;
+			transform: translateY(16px) scale(0.96);
+		}
+		.dialog[open]::backdrop {
+			background: rgba(0, 0, 0, 0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.dialog,
+		.dialog::backdrop {
+			transition: none;
+		}
+	}
+	.dialog h2 {
+		margin: 0 0 12px;
+		font-size: 20px;
+	}
+	.dialog-text {
+		margin: 0;
+		font-size: 15px;
+		overflow-wrap: anywhere;
+	}
+	.dialog-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 20px;
+	}
+	.dialog-btn {
+		height: 44px;
+		padding: 0 24px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, transform 0.1s;
+	}
+	.dialog-btn:active {
+		transform: scale(0.97);
+	}
+	.dialog-btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.dialog-btn.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.dialog-btn.ghost:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	.dialog-btn.danger {
+		border: 0;
+		background: #c62828;
+		color: #fff;
+	}
+	.dialog-btn.danger:hover {
+		background: #a81f1f;
+	}
+
+	@media (max-width: 480px) {
+		.photo {
+			grid-template-columns: 1fr;
+			padding: 16px;
+		}
+		.preview {
+			width: 100%;
+			height: 160px;
+		}
+		.remove {
+			top: 8px;
+			right: 8px;
+			background: rgba(255, 255, 255, 0.92);
+		}
+	}
+</style>

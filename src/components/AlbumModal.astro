@@ -1,0 +1,484 @@
+---
+import { fullPhotoUrl, photoUrl, type Photo } from '../data/photos';
+
+interface Props {
+	photos: Photo[];
+}
+
+const { photos } = Astro.props;
+
+// Data the script needs to open an album from any photo id.
+const albums: Record<number, { title: string; photos: Array<{ id: number; src: string; thumb: string; alt: string }> }> = {};
+const photoAlbum: Record<number, number> = {};
+for (const p of photos) {
+	albums[p.album] ??= { title: `Album ${p.album}`, photos: [] };
+	albums[p.album].photos.push({ id: p.id, src: fullPhotoUrl(p), thumb: photoUrl(p, 160), alt: p.alt });
+	photoAlbum[p.id] = p.album;
+}
+const json = JSON.stringify({ albums, photoAlbum }).replace(/</g, '\\u003c');
+---
+
+<dialog id="album-modal" class="album" aria-labelledby="album-title">
+	<header class="head">
+		<div>
+			<h2 id="album-title" data-title></h2>
+			<p class="count" data-count></p>
+		</div>
+		<button type="button" class="close" data-close-album aria-label="Close">×</button>
+	</header>
+
+	<div class="viewer">
+		<button type="button" class="nav prev" data-step="-1" aria-label="Previous photo">
+			<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M15.4 5.4L14 4l-8 8 8 8 1.4-1.4L8.8 12z" fill="currentColor" />
+			</svg>
+		</button>
+		<img data-image src="" alt="" />
+		<button type="button" class="nav next" data-step="1" aria-label="Next photo">
+			<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M8.6 5.4L10 4l8 8-8 8-1.4-1.4L15.2 12z" fill="currentColor" />
+			</svg>
+		</button>
+
+		<!-- Same buttons and login rule as on the thumbnails (see PhotoCard). -->
+		<div class="actions actions-top">
+			<button type="button" class="action" data-requires-login title="Like" aria-label="Like">♡</button>
+			<button type="button" class="action" data-requires-login title="Add to collection" aria-label="Add to collection">＋</button>
+		</div>
+		<div class="actions actions-bottom">
+			<button type="button" class="action download" data-requires-login title="Download">
+				<span aria-hidden="true">↓</span>
+				<span class="label-user">Download</span>
+				<span class="label-guest">Login to download</span>
+			</button>
+		</div>
+	</div>
+
+	<div class="strip">
+		<button type="button" class="arrow arrow-prev" data-scroll="-1" aria-label="Scroll thumbnails left">
+			<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M15.4 5.4L14 4l-8 8 8 8 1.4-1.4L8.8 12z" fill="currentColor" />
+			</svg>
+		</button>
+		<div class="thumbs" data-thumbs></div>
+		<button type="button" class="arrow arrow-next" data-scroll="1" aria-label="Scroll thumbnails right">
+			<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M8.6 5.4L10 4l8 8-8 8-1.4-1.4L15.2 12z" fill="currentColor" />
+			</svg>
+		</button>
+	</div>
+</dialog>
+
+<script type="application/json" id="album-data" is:inline set:html={json} />
+
+<script>
+	interface AlbumPhoto {
+		id: number;
+		src: string;
+		thumb: string;
+		alt: string;
+	}
+	interface AlbumData {
+		albums: Record<string, { title: string; photos: AlbumPhoto[] }>;
+		photoAlbum: Record<string, number>;
+	}
+
+	const dialog = document.querySelector<HTMLDialogElement>('#album-modal');
+	const dataEl = document.querySelector('#album-data');
+
+	if (dialog && dataEl) {
+		const data: AlbumData = JSON.parse(dataEl.textContent ?? '{}');
+		const title = dialog.querySelector<HTMLElement>('[data-title]')!;
+		const count = dialog.querySelector<HTMLElement>('[data-count]')!;
+		const image = dialog.querySelector<HTMLImageElement>('[data-image]')!;
+		const thumbs = dialog.querySelector<HTMLElement>('[data-thumbs]')!;
+		const arrowPrev = dialog.querySelector<HTMLElement>('.arrow-prev')!;
+		const arrowNext = dialog.querySelector<HTMLElement>('.arrow-next')!;
+
+		// Show each arrow only when the strip can scroll that way. Touch users just swipe the strip.
+		const updateArrows = () => {
+			const max = thumbs.scrollWidth - thumbs.clientWidth;
+			arrowPrev.classList.toggle('show', thumbs.scrollLeft > 1);
+			arrowNext.classList.toggle('show', thumbs.scrollLeft < max - 1);
+		};
+		thumbs.addEventListener('scroll', updateArrows, { passive: true });
+		new ResizeObserver(updateArrows).observe(thumbs);
+		dialog.querySelectorAll<HTMLElement>('[data-scroll]').forEach((btn) => {
+			btn.addEventListener('click', () => {
+				const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+				thumbs.scrollBy({
+					left: Number(btn.dataset.scroll) * thumbs.clientWidth * 0.7,
+					behavior: reduce ? 'auto' : 'smooth',
+				});
+			});
+		});
+
+		let items: AlbumPhoto[] = [];
+		let index = 0;
+
+		const show = (i: number) => {
+			index = (i + items.length) % items.length;
+			const photo = items[index];
+			image.src = photo.src;
+			image.alt = photo.alt;
+			count.textContent = `${index + 1} / ${items.length}`;
+			thumbs.querySelectorAll<HTMLElement>('.thumb').forEach((t, n) => {
+				t.setAttribute('aria-current', String(n === index));
+				if (n === index) t.scrollIntoView({ block: 'nearest', inline: 'center' });
+			});
+		};
+
+		const open = (photoId: number) => {
+			const id = data.photoAlbum[photoId];
+			const album = data.albums[id];
+			if (!album) return;
+			items = album.photos;
+			const start = Math.max(0, items.findIndex((p) => p.id === photoId));
+			title.textContent = album.title;
+			thumbs.replaceChildren(
+				...items.map((p, n) => {
+					const btn = document.createElement('button');
+					btn.type = 'button';
+					btn.className = 'thumb';
+					btn.setAttribute('aria-label', `Show ${p.alt}`);
+					const img = document.createElement('img');
+					img.src = p.thumb;
+					img.alt = '';
+					img.loading = 'lazy';
+					btn.append(img);
+					btn.addEventListener('click', () => show(n));
+					return btn;
+				}),
+			);
+			show(start);
+			dialog.showModal();
+			// Scrolling needs layout, so centre the active thumbnail only once the dialog is open.
+			const active = thumbs.children[index] as HTMLElement | undefined;
+			active?.scrollIntoView({ block: 'nearest', inline: 'center' });
+			active?.focus({ preventScroll: true });
+			updateArrows();
+		};
+
+		// Clicking a thumbnail opens its album, except on the like / collect / download buttons.
+		document.addEventListener('click', (e) => {
+			const target = e.target as HTMLElement;
+			const card = target.closest<HTMLElement>('[data-photo-id]');
+			if (!card || target.closest('[data-requires-login]')) return;
+			e.preventDefault();
+			open(Number(card.dataset.photoId));
+		});
+
+		dialog.querySelectorAll<HTMLElement>('[data-step]').forEach((btn) => {
+			btn.addEventListener('click', () => show(index + Number(btn.dataset.step)));
+		});
+		dialog.querySelector('[data-close-album]')?.addEventListener('click', () => dialog.close());
+		dialog.addEventListener('click', (e) => {
+			if (e.target === dialog) dialog.close();
+		});
+		dialog.addEventListener('keydown', (e) => {
+			if (e.key === 'ArrowLeft') show(index - 1);
+			if (e.key === 'ArrowRight') show(index + 1);
+		});
+	}
+</script>
+
+<style>
+	.album {
+		width: min(960px, calc(100vw - 32px));
+		/* Definite height so the photo row can fill the space between header and thumbnails. */
+		height: min(calc(100dvh - 32px), 880px);
+		max-height: none;
+		padding: 0;
+		border: 0;
+		border-radius: 12px;
+		overflow: hidden;
+		color: var(--text);
+		background: #fff;
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+
+		opacity: 0;
+		transform: translateY(16px) scale(0.96);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	/* Three separate rows: header, photo, thumbnail strip. */
+	.album[open] {
+		display: grid;
+		grid-template-rows: auto minmax(0, 1fr) auto;
+		opacity: 1;
+		transform: none;
+	}
+	.album::backdrop {
+		background: rgba(0, 0, 0, 0);
+		transition:
+			background 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.album[open]::backdrop {
+		background: rgba(0, 0, 0, 0.7);
+	}
+	@starting-style {
+		.album[open] {
+			opacity: 0;
+			transform: translateY(16px) scale(0.96);
+		}
+		.album[open]::backdrop {
+			background: rgba(0, 0, 0, 0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.album,
+		.album::backdrop {
+			transition: none;
+		}
+	}
+
+	.head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 16px 20px;
+	}
+	h2 {
+		margin: 0;
+		font-size: 20px;
+	}
+	.count {
+		margin: 2px 0 0;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.close {
+		display: grid;
+		place-items: center;
+		flex: none;
+		width: 40px;
+		height: 40px;
+		border: 0;
+		border-radius: 50%;
+		background: none;
+		font-size: 28px;
+		line-height: 1;
+		color: var(--muted);
+		transition: background 0.15s, color 0.15s;
+	}
+	.close:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+
+	.viewer {
+		position: relative;
+		min-height: 0;
+		overflow: hidden;
+		background: #111;
+	}
+	/*
+	 * The photo is pinned to the frame, so the frame (not the photo's own size) decides
+	 * how big it is: a tall or wide photo is scaled down to fit entirely, never cropped.
+	 */
+	.viewer img {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+	}
+	.nav {
+		position: absolute;
+		top: 50%;
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		z-index: 1;
+		margin-top: -22px;
+		border: 0;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.9);
+		color: var(--text);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+		transition: background 0.15s, transform 0.1s;
+	}
+	.nav:hover {
+		background: #fff;
+	}
+	.nav:active {
+		transform: scale(0.94);
+	}
+	.prev {
+		left: 12px;
+	}
+	.next {
+		right: 12px;
+	}
+
+	.actions {
+		position: absolute;
+		right: 12px;
+		z-index: 1;
+		display: flex;
+		gap: 8px;
+	}
+	.actions-top {
+		top: 12px;
+	}
+	.actions-bottom {
+		bottom: 12px;
+	}
+	.action {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		min-width: 48px;
+		height: 48px;
+		padding: 0 8px;
+		border: 0;
+		border-radius: 4px;
+		background: rgba(255, 255, 255, 0.92);
+		color: var(--muted);
+		font-size: 24px;
+		line-height: 1;
+		white-space: nowrap;
+		transition: background 0.15s, color 0.15s, transform 0.1s;
+	}
+	.action:hover {
+		background: #fff;
+		color: var(--text);
+	}
+	.action:active {
+		transform: scale(0.96);
+	}
+	.action:focus-visible {
+		outline: 2px solid #fff;
+		outline-offset: 2px;
+	}
+	.download {
+		padding: 0 14px;
+		font-size: 14px;
+		font-weight: 500;
+	}
+	/* Guests see "Login to download", signed-in users "Download". */
+	:global(html[data-auth='guest']) .label-user,
+	:global(html:not([data-auth='guest'])) .label-guest {
+		display: none;
+	}
+	.strip {
+		position: relative;
+		min-width: 0;
+		background: #fff;
+		border-top: 1px solid var(--bg-soft);
+	}
+	.thumbs {
+		display: flex;
+		gap: 8px;
+		padding: 12px 20px;
+		overflow-x: auto;
+		scrollbar-width: thin;
+		/* Swipe sideways with a finger without dragging the page or triggering back-navigation. */
+		touch-action: pan-x;
+		overscroll-behavior-x: contain;
+		-webkit-overflow-scrolling: touch;
+	}
+	.arrow {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		z-index: 1;
+		display: grid;
+		align-items: center;
+		width: 48px;
+		padding: 0;
+		border: 0;
+		color: var(--text);
+		opacity: 0;
+		visibility: hidden;
+		transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+	}
+	.arrow.show {
+		opacity: 1;
+		visibility: visible;
+		transition: opacity 0.2s ease, visibility 0s;
+	}
+	.arrow-prev {
+		left: 0;
+		justify-items: start;
+		padding-left: 8px;
+		background: linear-gradient(to right, #fff 55%, transparent);
+	}
+	.arrow-next {
+		right: 0;
+		justify-items: end;
+		padding-right: 8px;
+		background: linear-gradient(to left, #fff 55%, transparent);
+	}
+	.arrow:hover svg {
+		transform: scale(1.15);
+	}
+	.arrow:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: -2px;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.arrow,
+		.arrow.show {
+			transition: none;
+		}
+	}
+	/* Thumbnail buttons are created by the script, so they need :global. */
+	.thumbs :global(.thumb) {
+		flex: none;
+		width: 72px;
+		height: 72px;
+		padding: 0;
+		border: 2px solid transparent;
+		border-radius: 8px;
+		overflow: hidden;
+		background: var(--bg-soft);
+		opacity: 0.65;
+		transition: opacity 0.15s, border-color 0.15s;
+	}
+	.thumbs :global(.thumb:hover) {
+		opacity: 1;
+	}
+	.thumbs :global(.thumb[aria-current='true']) {
+		border-color: var(--text);
+		opacity: 1;
+	}
+	.thumbs :global(.thumb img) {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.close:focus-visible,
+	.nav:focus-visible,
+	.thumbs :global(.thumb:focus-visible) {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+
+	@media (max-width: 600px) {
+		.album {
+			width: calc(100vw - 16px);
+			height: calc(100dvh - 16px);
+		}
+		.head {
+			padding: 12px 16px;
+		}
+		.thumbs {
+			padding: 10px 16px;
+		}
+		.thumbs :global(.thumb) {
+			width: 60px;
+			height: 60px;
+		}
+	}
+</style>

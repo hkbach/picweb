@@ -1,0 +1,84 @@
+---
+import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import AlbumForms from '../../../../components/AlbumForms.astro';
+import { albums, albumTypeLabels } from '../../../../data/albums';
+import { fullPhotoUrl } from '../../../../data/photos';
+
+// Albums are placeholder data for now, so each Edit page is generated ahead of time.
+// With a real album service this becomes an on-demand page that loads the album by id.
+export function getStaticPaths() {
+	return albums.map((album) => ({ params: { id: String(album.id) }, props: { album } }));
+}
+
+const { album } = Astro.props;
+
+const initial = {
+	id: album.id,
+	title: album.title,
+	categoryIds: album.categoryIds,
+	coverIndex: Math.max(0, album.photos.findIndex((p) => p.id === album.cover.id)),
+	photos: album.photos.map((p) => ({ url: fullPhotoUrl(p), alt: p.alt })),
+};
+---
+
+<AdminLayout title={`Edit ${album.title}`} heading="Edit album">
+	<a href="/admin/albums" class="back">← Back to albums</a>
+	<p class="meta">
+		Editing <strong>{album.title}</strong> · Type
+		<span class={`type type-${album.type}`}>{albumTypeLabels[album.type]}</span>
+	</p>
+	<p class="note">
+		An album keeps the type it was created with, so it is edited the same way: {
+			album.type === 'crawling' ? 'by its image links.' : 'by its uploaded photos.'
+		}
+	</p>
+
+	<AlbumForms mode="edit" type={album.type} album={initial} />
+</AdminLayout>
+
+<style>
+	.back {
+		display: inline-block;
+		margin: -8px 0 12px;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.back:hover {
+		color: var(--text);
+		text-decoration: underline;
+	}
+	.back:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+		border-radius: 4px;
+	}
+	.meta {
+		margin: 0 0 4px;
+		font-size: 15px;
+	}
+	.note {
+		max-width: 720px;
+		margin: 0 0 24px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+
+	/* Same badges as the albums list. */
+	.type {
+		display: inline-block;
+		margin-left: 4px;
+		padding: 3px 10px;
+		border-radius: 999px;
+		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.type-crawling {
+		background: #e8f0fe;
+		color: #1a4fb4;
+	}
+	.type-uploaded {
+		background: #e6f4ea;
+		color: #1b6b34;
+	}
+</style>

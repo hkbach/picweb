@@ -1,0 +1,479 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { categories } from '../../data/categories';
+
+// Escape "<" so the data can never close the script tag it is embedded in.
+const json = JSON.stringify(categories).replace(/</g, '\\u003c');
+---
+
+<AdminLayout title="Categories" heading="Categories">
+	<p class="intro">
+		These categories appear in the navigation bar on the Homepage, in the order listed here. The first one is selected by default.
+	</p>
+
+	<section class="block" aria-labelledby="preview-title">
+		<h2 id="preview-title">Homepage navigation preview</h2>
+		<div class="nav-preview" id="nav-preview" aria-hidden="true"></div>
+	</section>
+
+	<form class="add" id="add-form" novalidate>
+		<label class="field">
+			<span class="label">New category</span>
+			<span class="add-row">
+				<input id="new-name" type="text" maxlength="30" autocomplete="off" placeholder="e.g. Architecture" />
+				<button type="submit" class="btn secondary">Add</button>
+			</span>
+		</label>
+	</form>
+
+	<section class="block" aria-labelledby="list-title">
+		<div class="list-head">
+			<h2 id="list-title">All categories</h2>
+			<p class="count" id="count" aria-live="polite"></p>
+		</div>
+		<ol class="rows" id="rows"></ol>
+		<p class="empty" id="empty" hidden>No categories yet. The navigation bar is hidden on the Homepage until you add one.</p>
+	</section>
+
+	<div class="footer">
+		<button type="button" class="btn primary" id="save" disabled>Save changes</button>
+		<button type="button" class="btn ghost" id="discard" disabled>Discard changes</button>
+		<p class="status" id="status" role="status"></p>
+	</div>
+
+	<template id="row-template">
+		<li class="row">
+			<input class="name" type="text" maxlength="30" autocomplete="off" />
+			<div class="actions">
+				<button type="button" class="icon up">↑</button>
+				<button type="button" class="icon down">↓</button>
+				<button type="button" class="icon del">×</button>
+			</div>
+		</li>
+	</template>
+
+	<script type="application/json" id="category-data" is:inline set:html={json} />
+</AdminLayout>
+
+<script>
+	import { saveCategories } from '../../scripts/categories-api';
+
+	interface Category {
+		id: string;
+		name: string;
+	}
+
+	const MAX_CATEGORIES = 30;
+	const MAX_NAME = 30;
+
+	const initial: Category[] = JSON.parse(document.querySelector('#category-data')!.textContent ?? '[]');
+	let items: Category[] = initial.map((c) => ({ ...c }));
+	let nextId = 0;
+
+	const rows = document.querySelector<HTMLOListElement>('#rows')!;
+	const template = document.querySelector<HTMLTemplateElement>('#row-template')!;
+	const preview = document.querySelector<HTMLElement>('#nav-preview')!;
+	const count = document.querySelector<HTMLElement>('#count')!;
+	const empty = document.querySelector<HTMLElement>('#empty')!;
+	const addForm = document.querySelector<HTMLFormElement>('#add-form')!;
+	const newName = document.querySelector<HTMLInputElement>('#new-name')!;
+	const saveButton = document.querySelector<HTMLButtonElement>('#save')!;
+	const discardButton = document.querySelector<HTMLButtonElement>('#discard')!;
+	const status = document.querySelector<HTMLElement>('#status')!;
+
+	const say = (message: string, isError = false) => {
+		status.textContent = message;
+		status.classList.toggle('is-error', isError);
+	};
+
+	const makeId = () => (crypto.randomUUID ? crypto.randomUUID() : `new-${Date.now()}-${nextId++}`);
+	const isDirty = () => JSON.stringify(items) !== JSON.stringify(initial);
+
+	// Returns an error message, or '' when the name can be used. `exceptId` is the category being renamed.
+	const checkName = (raw: string, exceptId?: string) => {
+		const name = raw.trim();
+		if (!name) return 'Enter a category name.';
+		if (name.length > MAX_NAME) return `Use at most ${MAX_NAME} characters.`;
+		const taken = items.some((c) => c.id !== exceptId && c.name.toLowerCase() === name.toLowerCase());
+		return taken ? `“${name}” already exists.` : '';
+	};
+
+	// Redraws the list and the preview. `focus` puts keyboard focus back on a control after a move.
+	const render = (focus?: { id: string; control: 'up' | 'down' | 'del' | 'name' }) => {
+		rows.replaceChildren();
+		items.forEach((item, i) => {
+			const row = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+			row.dataset.id = item.id;
+
+			const input = row.querySelector<HTMLInputElement>('.name')!;
+			input.value = item.name;
+			input.setAttribute('aria-label', `Category ${i + 1} name`);
+			const commit = () => {
+				const problem = checkName(input.value, item.id);
+				if (problem) {
+					say(problem, true);
+					input.value = item.name; // keep the last valid name
+					return;
+				}
+				const name = input.value.trim();
+				input.value = name;
+				if (name !== item.name) {
+					item.name = name;
+					say('');
+					// Update in place. Redrawing every row here would replace the button or field the user is
+					// clicking or tabbing to at that very moment, losing the click and the keyboard focus.
+					labelButtons();
+					renderSummary();
+				}
+			};
+			input.addEventListener('change', commit);
+			input.addEventListener('keydown', (e) => {
+				if (e.key === 'Enter') {
+					e.preventDefault();
+					commit();
+				}
+				if (e.key === 'Escape') input.value = item.name;
+			});
+
+			const up = row.querySelector<HTMLButtonElement>('.up')!;
+			const down = row.querySelector<HTMLButtonElement>('.down')!;
+			const del = row.querySelector<HTMLButtonElement>('.del')!;
+			const labelButtons = () => {
+				up.setAttribute('aria-label', `Move ${item.name} up`);
+				down.setAttribute('aria-label', `Move ${item.name} down`);
+				del.setAttribute('aria-label', `Delete ${item.name}`);
+			};
+			labelButtons();
+			up.disabled = i === 0;
+			down.disabled = i === items.length - 1;
+
+			const move = (by: number, control: 'up' | 'down') => {
+				[items[i], items[i + by]] = [items[i + by], items[i]];
+				render({ id: item.id, control });
+			};
+			up.addEventListener('click', () => move(-1, 'up'));
+			down.addEventListener('click', () => move(1, 'down'));
+			del.addEventListener('click', () => {
+				const neighbour = items[i + 1] ?? items[i - 1];
+				items = items.filter((c) => c.id !== item.id);
+				say(`Deleted “${item.name}”. Use Discard changes to bring it back.`);
+				render(neighbour ? { id: neighbour.id, control: 'del' } : undefined);
+				if (!neighbour) newName.focus();
+			});
+
+			rows.append(row);
+		});
+
+		renderSummary();
+
+		if (focus) rows.querySelector<HTMLElement>(`[data-id="${CSS.escape(focus.id)}"] .${focus.control}`)?.focus();
+		// A disabled button cannot keep focus (for example "up" on what is now the first row).
+		if (focus && document.activeElement === document.body) {
+			rows.querySelector<HTMLElement>(`[data-id="${CSS.escape(focus.id)}"] .${focus.control === 'up' ? 'down' : 'up'}`)?.focus();
+		}
+	};
+
+	// Everything except the rows: the preview bar, the count and the Save/Discard state.
+	function renderSummary() {
+		// Mirror of the Homepage bar: first category selected, then a divider, then the rest.
+		preview.replaceChildren();
+		items.forEach((item, i) => {
+			const chip = document.createElement('span');
+			chip.className = `chip${i === 0 ? ' active' : ''}`;
+			chip.textContent = item.name;
+			preview.append(chip);
+			if (i === 0 && items.length > 1) {
+				const sep = document.createElement('span');
+				sep.className = 'sep';
+				preview.append(sep);
+			}
+		});
+		preview.hidden = items.length === 0;
+
+		count.textContent = `${items.length} categor${items.length === 1 ? 'y' : 'ies'}`;
+		empty.hidden = items.length > 0;
+		const dirty = isDirty();
+		saveButton.disabled = !dirty;
+		discardButton.disabled = !dirty;
+		newName.disabled = items.length >= MAX_CATEGORIES;
+	}
+
+	addForm.addEventListener('submit', (e) => {
+		e.preventDefault();
+		if (items.length >= MAX_CATEGORIES) return say(`At most ${MAX_CATEGORIES} categories are allowed.`, true);
+		const problem = checkName(newName.value);
+		if (problem) {
+			say(problem, true);
+			newName.focus();
+			return;
+		}
+		items.push({ id: makeId(), name: newName.value.trim() });
+		newName.value = '';
+		say('Added. Click Save changes to publish the new order.');
+		render();
+		newName.focus();
+	});
+
+	discardButton.addEventListener('click', () => {
+		items = initial.map((c) => ({ ...c }));
+		say('Changes discarded.');
+		render();
+	});
+
+	saveButton.addEventListener('click', async () => {
+		saveButton.disabled = true;
+		say('Saving…');
+		const result = await saveCategories(items.map(({ id, name }) => ({ id, name })));
+		render(); // restores the buttons from the dirty state
+
+		if (result.ok) return say('Categories saved.');
+		if (result.reason === 'not-configured') {
+			return say('Not saved: no category service is connected yet. Your edits stay on this page until you leave it.', true);
+		}
+		say('The categories could not be saved. Please try again.', true);
+	});
+
+	render();
+</script>
+
+<style>
+	.intro {
+		max-width: 720px;
+		margin: -8px 0 24px;
+		color: var(--muted);
+	}
+	.block {
+		max-width: 720px;
+		margin-bottom: 28px;
+	}
+	h2 {
+		margin: 0 0 12px;
+		font-size: 18px;
+	}
+
+	/* Same look as the Homepage navigation bar. */
+	.nav-preview {
+		display: flex;
+		align-items: center;
+		gap: 24px;
+		height: 48px;
+		padding: 0 4px;
+		overflow-x: auto;
+		white-space: nowrap;
+		scrollbar-width: none;
+		border-bottom: 1px solid var(--bg-soft);
+		font-size: 14px;
+	}
+	.nav-preview::-webkit-scrollbar {
+		display: none;
+	}
+	/* `display: flex` above would otherwise override the hidden attribute. */
+	.nav-preview[hidden] {
+		display: none;
+	}
+	.nav-preview :global(.chip) {
+		display: flex;
+		align-items: center;
+		height: 100%;
+		color: var(--muted);
+		border-bottom: 2px solid transparent;
+	}
+	.nav-preview :global(.chip.active) {
+		color: var(--text);
+		border-bottom-color: var(--text);
+	}
+	.nav-preview :global(.sep) {
+		width: 1px;
+		height: 24px;
+		background: var(--border);
+	}
+
+	.add {
+		max-width: 720px;
+		margin-bottom: 28px;
+	}
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	.label {
+		font-size: 14px;
+		font-weight: 500;
+	}
+	.add-row {
+		display: flex;
+		gap: 12px;
+	}
+	input[type='text'] {
+		flex: 1;
+		min-width: 0;
+		height: 44px;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		font: inherit;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	input:focus {
+		outline: 0;
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+	input:disabled {
+		background: var(--bg-soft);
+	}
+
+	.list-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+	}
+	.list-head h2 {
+		margin-bottom: 12px;
+	}
+	.count {
+		margin: 0;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.rows {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.row {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 8px 8px 8px 12px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.row .name {
+		border-color: transparent;
+		background: transparent;
+	}
+	.row .name:hover {
+		border-color: var(--border);
+	}
+	.row .name:focus {
+		background: #fff;
+		border-color: var(--text);
+	}
+	.actions {
+		display: flex;
+		flex: none;
+		gap: 4px;
+	}
+	.icon {
+		display: grid;
+		place-items: center;
+		width: 36px;
+		height: 36px;
+		padding: 0;
+		border: 0;
+		border-radius: 8px;
+		background: none;
+		color: var(--muted);
+		font-size: 18px;
+		line-height: 1;
+		transition: background 0.15s, color 0.15s;
+	}
+	.icon:hover:not(:disabled) {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	.del:hover:not(:disabled) {
+		color: #c62828;
+	}
+	.icon:disabled {
+		opacity: 0.3;
+		cursor: default;
+	}
+	.icon:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.empty {
+		margin: 0;
+		color: var(--muted);
+	}
+
+	.footer {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 12px;
+		max-width: 720px;
+	}
+	.status {
+		flex-basis: 100%;
+		margin: 4px 0 0;
+		min-height: 1.4em;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.status.is-error {
+		color: #c62828;
+	}
+	.btn {
+		height: 44px;
+		padding: 0 24px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+	}
+	.btn:active:not(:disabled) {
+		transform: scale(0.97);
+	}
+	.btn:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.primary {
+		border: 0;
+		background: var(--text);
+		color: #fff;
+	}
+	.primary:hover:not(:disabled) {
+		background: #333;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+	.secondary {
+		flex: none;
+		border: 1.5px solid var(--text);
+		background: transparent;
+		color: var(--text);
+	}
+	.secondary:hover:not(:disabled) {
+		background: var(--text);
+		color: #fff;
+	}
+	.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.ghost:hover:not(:disabled) {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+
+	@media (max-width: 480px) {
+		.add-row {
+			flex-direction: column;
+		}
+		.add-row .btn {
+			width: 100%;
+		}
+	}
+</style>

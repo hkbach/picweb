@@ -1,0 +1,26 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Header from '../components/Header.astro';
+import Hero from '../components/Hero.astro';
+import TopicsNav from '../components/TopicsNav.astro';
+import ViewToggle from '../components/ViewToggle.astro';
+import PhotoGrid from '../components/PhotoGrid.astro';
+import LoginModal from '../components/LoginModal.astro';
+import BackToTop from '../components/BackToTop.astro';
+import AlbumModal from '../components/AlbumModal.astro';
+import { photos } from '../data/photos';
+import { categories } from '../data/categories';
+---
+
+<Layout title="Picweb – Free high-resolution photos">
+	<Header />
+	<main>
+		<Hero />
+		{categories.length > 0 && <TopicsNav topics={categories.map((c) => c.name)} />}
+		<ViewToggle />
+		<PhotoGrid photos={photos} />
+	</main>
+	<AlbumModal photos={photos} />
+	<LoginModal />
+	<BackToTop />
+</Layout>

@@ -1,0 +1,644 @@
+<section class="summary viz" aria-label="User registrations summary">
+	<div class="filters" role="group" aria-label="Date range">
+		<button type="button" class="range" data-days="30" aria-pressed="true">1 month</button>
+		<button type="button" class="range" data-days="90" aria-pressed="false">3 months</button>
+		<button type="button" class="range" data-days="180" aria-pressed="false">6 months</button>
+		<button type="button" class="range" data-days="365" aria-pressed="false">1 year</button>
+	</div>
+
+	<ul class="kpis">
+		<li class="kpi">
+			<p class="kpi-label">Total users</p>
+			<p class="kpi-value" data-kpi="total"></p>
+		</li>
+		<li class="kpi">
+			<p class="kpi-label">Active</p>
+			<p class="kpi-value" data-kpi="active"></p>
+			<p class="kpi-note" data-kpi-note="active"></p>
+		</li>
+		<li class="kpi">
+			<p class="kpi-label">Deactivated</p>
+			<p class="kpi-value" data-kpi="deactivated"></p>
+			<p class="kpi-note" data-kpi-note="deactivated"></p>
+		</li>
+		<li class="kpi">
+			<p class="kpi-label" data-kpi-label="new">New users</p>
+			<p class="kpi-value" data-kpi="new"></p>
+			<p class="kpi-note" data-kpi-note="new"></p>
+		</li>
+	</ul>
+
+	<figure class="card">
+		<figcaption>
+			<h2>New registrations per day</h2>
+			<p class="sub" data-range-text></p>
+		</figcaption>
+
+		<div class="chart" data-chart tabindex="0" role="group" aria-roledescription="line chart" aria-label="New registrations per day. Use the left and right arrow keys to move between days.">
+			<div class="tooltip" data-tooltip hidden></div>
+		</div>
+		<p class="visually-hidden" aria-live="polite" data-readout></p>
+
+		<p class="insight" data-insight></p>
+
+		<button type="button" class="link" data-table-toggle aria-expanded="false" aria-controls="summary-table">View as table</button>
+		<div class="table-wrap" id="summary-table" data-table-wrap hidden>
+			<table>
+				<caption class="visually-hidden">New registrations per day, newest first</caption>
+				<thead>
+					<tr>
+						<th scope="col">Date</th>
+						<th scope="col" class="num">New users</th>
+					</tr>
+				</thead>
+				<tbody data-table-body></tbody>
+			</table>
+		</div>
+	</figure>
+</section>
+
+<script>
+	interface UserRow {
+		id: string;
+		status: 'active' | 'deactivated';
+		registeredAt: string;
+	}
+
+	const DAY = 86_400_000;
+	const RANGE_NAMES: Record<number, string> = { 30: '1 month', 90: '3 months', 180: '6 months', 365: '1 year' };
+
+	const root = document.querySelector<HTMLElement>('.summary')!;
+	const chartEl = root.querySelector<HTMLElement>('[data-chart]')!;
+	const tooltip = root.querySelector<HTMLElement>('[data-tooltip]')!;
+	const readout = root.querySelector<HTMLElement>('[data-readout]')!;
+	const insight = root.querySelector<HTMLElement>('[data-insight]')!;
+	const rangeText = root.querySelector<HTMLElement>('[data-range-text]')!;
+	const tableToggle = root.querySelector<HTMLButtonElement>('[data-table-toggle]')!;
+	const tableWrap = root.querySelector<HTMLElement>('[data-table-wrap]')!;
+	const tableBody = root.querySelector<HTMLElement>('[data-table-body]')!;
+	const rangeButtons = Array.from(root.querySelectorAll<HTMLButtonElement>('.range'));
+
+	const initial = JSON.parse(document.querySelector('#users-data')!.textContent ?? '{}') as { snapshot: string; users: UserRow[] };
+	const toMs = (iso: string) => {
+		const [y, m, d] = iso.split('-').map(Number);
+		return Date.UTC(y, m - 1, d);
+	};
+	const snapshot = toMs(initial.snapshot);
+
+	let users: UserRow[] = initial.users;
+	let days = 30;
+	let points: Array<{ ms: number; count: number }> = [];
+	let activeIndex: number | null = null;
+	let layout = { w: 0, h: 0, l: 44, r: 16, t: 16, b: 30, yMax: 1 };
+
+	const dayFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+	const fullFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+	const monthFmt = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' });
+	const num = (n: number) => n.toLocaleString('en-US');
+	const SVG = 'http://www.w3.org/2000/svg';
+
+	// Sign-ups per day for the `length` days ending `offset` days before the snapshot day.
+	const seriesFor = (length: number, offset = 0) => {
+		const end = snapshot - offset * DAY;
+		const start = end - (length - 1) * DAY;
+		const counts = new Array<number>(length).fill(0);
+		for (const user of users) {
+			const ms = toMs(user.registeredAt);
+			if (ms >= start && ms <= end) counts[(ms - start) / DAY]++;
+		}
+		return counts.map((count, i) => ({ ms: start + i * DAY, count }));
+	};
+
+	const sum = (list: Array<{ count: number }>) => list.reduce((total, p) => total + p.count, 0);
+
+	// ---- the four figures above the chart
+	const setText = (selector: string, text: string) => {
+		root.querySelector<HTMLElement>(selector)!.textContent = text;
+	};
+
+	const renderKpis = () => {
+		const active = users.filter((u) => u.status === 'active').length;
+		const deactivated = users.length - active;
+		const share = (n: number) => (users.length === 0 ? '' : `${Math.round((n / users.length) * 100)}% of all users`);
+		setText('[data-kpi="total"]', num(users.length));
+		setText('[data-kpi="active"]', num(active));
+		setText('[data-kpi-note="active"]', share(active));
+		setText('[data-kpi="deactivated"]', num(deactivated));
+		setText('[data-kpi-note="deactivated"]', share(deactivated));
+
+		const current = sum(points);
+		const previous = sum(seriesFor(days, days));
+		setText('[data-kpi-label="new"]', `New users, last ${days} days`);
+		setText('[data-kpi="new"]', num(current));
+
+		const note = root.querySelector<HTMLElement>('[data-kpi-note="new"]')!;
+		note.className = 'kpi-note';
+		// Comparing against a window that is only partly covered by the records would show a huge,
+		// meaningless growth figure (for example +2677% for one year when history starts 13 months ago).
+		const earliest = users.reduce((min, u) => Math.min(min, toMs(u.registeredAt)), Infinity);
+		const previousStart = snapshot - (2 * days - 1) * DAY;
+		if (earliest > previousStart) {
+			note.textContent = `Not enough history to compare with the previous ${days} days`;
+		} else if (previous === 0) {
+			note.textContent = `None in the previous ${days} days`;
+		} else {
+			const change = Math.round(((current - previous) / previous) * 100);
+			// Direction is spelled out with an arrow and words as well as colour.
+			note.textContent = change === 0 ? `No change vs previous ${days} days` : `${change > 0 ? '▲' : '▼'} ${Math.abs(change)}% vs previous ${days} days`;
+			if (change > 0) note.classList.add('up');
+			if (change < 0) note.classList.add('down');
+		}
+	};
+
+	// ---- chart helpers
+	const el = (name: string, attrs: Record<string, string | number> = {}, className?: string) => {
+		const node = document.createElementNS(SVG, name);
+		for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+		if (className) node.setAttribute('class', className);
+		return node;
+	};
+
+	// Round the top of the axis up to a clean number, with about four steps.
+	const niceScale = (max: number) => {
+		const target = Math.max(max, 1) / 4;
+		const magnitude = 10 ** Math.floor(Math.log10(target));
+		const step = ([1, 2, 5, 10].find((m) => m * magnitude >= target) ?? 10) * magnitude;
+		const top = Math.max(Math.ceil(max / step) * step, step);
+		return { step, top };
+	};
+
+	// Week-ish ticks for short ranges, one per month start for long ones.
+	const xTicks = (width: number) => {
+		const n = points.length;
+		const minGap = 56;
+		const picks: number[] = [];
+		if (days <= 90) {
+			const every = days <= 30 ? 5 : 14;
+			for (let i = n - 1; i >= 0; i -= every) picks.push(i);
+		} else {
+			points.forEach((p, i) => {
+				if (new Date(p.ms).getUTCDate() === 1) picks.push(i);
+			});
+		}
+		const xOf = (i: number) => layout.l + (i / Math.max(n - 1, 1)) * width;
+		const kept: number[] = [];
+		for (const i of picks.sort((a, b) => a - b)) {
+			if (kept.length === 0 || xOf(i) - xOf(kept[kept.length - 1]) >= minGap) kept.push(i);
+		}
+		return kept;
+	};
+
+	const labelFor = (i: number) => {
+		const date = new Date(points[i].ms);
+		return days > 90 ? monthFmt.format(date) : dayFmt.format(date);
+	};
+
+	const showPoint = (i: number) => {
+		activeIndex = i;
+		const svg = chartEl.querySelector('svg');
+		if (!svg) return;
+		const innerW = layout.w - layout.l - layout.r;
+		const innerH = layout.h - layout.t - layout.b;
+		const x = layout.l + (i / Math.max(points.length - 1, 1)) * innerW;
+		const y = layout.t + innerH - (points[i].count / layout.yMax) * innerH;
+
+		const guide = svg.querySelector('.guide')!;
+		guide.setAttribute('x1', String(x));
+		guide.setAttribute('x2', String(x));
+		guide.removeAttribute('hidden');
+		const dot = svg.querySelector('.hover-dot')!;
+		dot.setAttribute('cx', String(x));
+		dot.setAttribute('cy', String(y));
+		dot.removeAttribute('hidden');
+
+		// Value first, then what it counts, then the date: the reader already knows the series.
+		const { count } = points[i];
+		tooltip.replaceChildren();
+		const date = document.createElement('div');
+		date.className = 'tt-date';
+		date.textContent = fullFmt.format(new Date(points[i].ms));
+		const row = document.createElement('div');
+		row.className = 'tt-row';
+		const key = document.createElement('span');
+		key.className = 'tt-key';
+		const value = document.createElement('strong');
+		value.textContent = num(count);
+		const label = document.createElement('span');
+		label.className = 'tt-label';
+		label.textContent = count === 1 ? 'new user' : 'new users';
+		row.append(key, value, label);
+		tooltip.append(date, row);
+		tooltip.hidden = false;
+
+		const tw = tooltip.offsetWidth;
+		const left = x > layout.w * 0.6 ? x - tw - 12 : x + 12;
+		tooltip.style.left = `${Math.max(0, Math.min(left, layout.w - tw))}px`;
+		tooltip.style.top = `${layout.t}px`;
+
+		readout.textContent = `${fullFmt.format(new Date(points[i].ms))}: ${num(count)} new ${count === 1 ? 'user' : 'users'}`;
+	};
+
+	const hidePoint = () => {
+		activeIndex = null;
+		tooltip.hidden = true;
+		chartEl.querySelector('.guide')?.setAttribute('hidden', '');
+		chartEl.querySelector('.hover-dot')?.setAttribute('hidden', '');
+	};
+
+	const renderChart = () => {
+		const width = chartEl.clientWidth;
+		if (width === 0) return; // the tab is hidden; it draws once it is shown
+		const height = width < 520 ? 240 : 300;
+		const innerW = width - layout.l - layout.r;
+		const innerH = height - layout.t - layout.b;
+		const peak = Math.max(...points.map((p) => p.count));
+		const { step, top } = niceScale(peak);
+		layout = { ...layout, w: width, h: height, yMax: top };
+
+		const x = (i: number) => layout.l + (i / Math.max(points.length - 1, 1)) * innerW;
+		const y = (v: number) => layout.t + innerH - (v / top) * innerH;
+
+		const svg = el('svg', { width, height, viewBox: `0 0 ${width} ${height}`, 'aria-hidden': 'true' });
+
+		// Hairline gridlines with the value on the axis; the baseline is a touch stronger.
+		for (let v = 0; v <= top; v += step) {
+			svg.append(el('line', { x1: layout.l, x2: width - layout.r, y1: y(v), y2: y(v) }, v === 0 ? 'axis' : 'grid'));
+			const text = el('text', { x: layout.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, 'tick');
+			text.textContent = num(v);
+			svg.append(text);
+		}
+		for (const i of xTicks(innerW)) {
+			const text = el('text', { x: x(i), y: height - 8, 'text-anchor': 'middle' }, 'tick');
+			text.textContent = labelFor(i);
+			svg.append(text);
+		}
+
+		const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.count).toFixed(1)}`).join(' ');
+		const area = `${line} L${x(points.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z`;
+		svg.append(el('path', { d: area }, 'area'), el('path', { d: line }, 'line'));
+
+		// The latest day gets a dot; the pointer's day gets the guide and a second dot.
+		const last = points.length - 1;
+		svg.append(el('circle', { cx: x(last), cy: y(points[last].count), r: 4 }, 'end-dot'));
+		svg.append(el('line', { x1: 0, x2: 0, y1: layout.t, y2: layout.t + innerH, hidden: '' }, 'guide'));
+		svg.append(el('circle', { cx: 0, cy: 0, r: 4, hidden: '' }, 'hover-dot'));
+
+		// A transparent layer larger than any mark: the pointer only has to be near a day.
+		const overlay = el('rect', { x: layout.l, y: layout.t, width: innerW, height: innerH, fill: 'transparent' });
+		const indexAt = (event: PointerEvent) => {
+			const box = svg.getBoundingClientRect();
+			const ratio = (event.clientX - box.left - layout.l) / innerW;
+			return Math.max(0, Math.min(points.length - 1, Math.round(ratio * (points.length - 1))));
+		};
+		overlay.addEventListener('pointermove', (e) => showPoint(indexAt(e as PointerEvent)));
+		overlay.addEventListener('pointerdown', (e) => showPoint(indexAt(e as PointerEvent)));
+		overlay.addEventListener('pointerleave', () => {
+			if (document.activeElement !== chartEl) hidePoint();
+		});
+		svg.append(overlay);
+
+		chartEl.querySelector('svg')?.remove();
+		chartEl.prepend(svg);
+		if (activeIndex !== null) showPoint(Math.min(activeIndex, points.length - 1));
+	};
+
+	const renderTable = () => {
+		tableBody.replaceChildren();
+		for (const p of [...points].reverse()) {
+			const tr = document.createElement('tr');
+			const date = document.createElement('th');
+			date.scope = 'row';
+			date.textContent = fullFmt.format(new Date(p.ms));
+			const count = document.createElement('td');
+			count.className = 'num';
+			count.textContent = num(p.count);
+			tr.append(date, count);
+			tableBody.append(tr);
+		}
+	};
+
+	const render = () => {
+		points = seriesFor(days);
+		const total = sum(points);
+		const peak = points.reduce((best, p) => (p.count > best.count ? p : best), points[0]);
+
+		rangeText.textContent = `Last ${days} days (${RANGE_NAMES[days]}) · ${dayFmt.format(new Date(points[0].ms))} to ${fullFmt.format(new Date(points[points.length - 1].ms))}`;
+		insight.textContent =
+			total === 0
+				? 'No users registered in this period.'
+				: `${num(total)} new users · ${(total / days).toFixed(1)} per day on average · busiest day ${dayFmt.format(new Date(peak.ms))} with ${num(peak.count)}`;
+
+		renderKpis();
+		renderChart();
+		if (!tableWrap.hidden) renderTable();
+	};
+
+	// ---- controls
+	rangeButtons.forEach((button) =>
+		button.addEventListener('click', () => {
+			days = Number(button.dataset.days);
+			rangeButtons.forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+			activeIndex = null;
+			hidePoint();
+			render();
+		}),
+	);
+
+	tableToggle.addEventListener('click', () => {
+		const open = tableWrap.hidden;
+		tableWrap.hidden = !open;
+		tableToggle.setAttribute('aria-expanded', String(open));
+		tableToggle.textContent = open ? 'Hide table' : 'View as table';
+		if (open) renderTable();
+	});
+
+	// Keyboard: arrows walk through the days, with the same readout as the pointer.
+	chartEl.addEventListener('focus', () => showPoint(activeIndex ?? points.length - 1));
+	chartEl.addEventListener('blur', hidePoint);
+	chartEl.addEventListener('keydown', (e) => {
+		const i = activeIndex ?? points.length - 1;
+		const next = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: points.length - 1 }[e.key];
+		if (next === undefined) return;
+		e.preventDefault();
+		showPoint(Math.max(0, Math.min(points.length - 1, next)));
+	});
+
+	new ResizeObserver(() => renderChart()).observe(chartEl);
+
+	// The Users tab announces its edits so these figures always match the table.
+	document.addEventListener('users:changed', (e) => {
+		users = (e as CustomEvent<{ users: UserRow[] }>).detail.users;
+		render();
+	});
+
+	render();
+</script>
+
+<style>
+	/* Chart colours as roles. This page is light only; a dark theme would swap these in one place. */
+	.viz {
+		--surface-1: #ffffff;
+		--text-primary: #0b0b0b;
+		--text-secondary: #52514e;
+		--text-muted: #898781;
+		--grid: #e1e0d9;
+		--axis: #c3c2b7;
+		--series-1: #2a78d6;
+		--good-text: #006300;
+		--critical: #d03b3b;
+	}
+
+	/* One row of filters above everything they scope. */
+	.filters {
+		display: inline-flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		margin-bottom: 20px;
+		padding: 4px;
+		border-radius: 999px;
+		background: var(--bg-soft);
+	}
+	.range {
+		height: 34px;
+		padding: 0 16px;
+		border: 0;
+		border-radius: 999px;
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		font-size: 14px;
+		font-weight: 500;
+		transition: background 0.15s, color 0.15s;
+	}
+	.range:hover:not([aria-pressed='true']) {
+		background: rgba(11, 11, 11, 0.06);
+		color: var(--text-primary);
+	}
+	.range[aria-pressed='true'] {
+		background: var(--text-primary);
+		color: #fff;
+	}
+	.range:focus-visible {
+		outline: 2px solid var(--text-primary);
+		outline-offset: 2px;
+	}
+
+	.kpis {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+		gap: 12px;
+		margin: 0 0 20px;
+		padding: 0;
+		list-style: none;
+	}
+	.kpi {
+		padding: 16px 18px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.kpi-label {
+		margin: 0 0 6px;
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+	.kpi-value {
+		margin: 0;
+		font-size: 30px;
+		font-weight: 600;
+		line-height: 1.1;
+		color: var(--text-primary);
+	}
+	.kpi-note {
+		min-height: 1.3em;
+		margin: 6px 0 0;
+		font-size: 12px;
+		color: var(--text-secondary);
+	}
+	.kpi-note.up {
+		color: var(--good-text);
+	}
+	.kpi-note.down {
+		color: var(--critical);
+	}
+
+	.card {
+		margin: 0;
+		padding: 18px 20px 16px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		background: var(--surface-1);
+	}
+	h2 {
+		margin: 0;
+		font-size: 17px;
+		color: var(--text-primary);
+	}
+	.sub {
+		margin: 4px 0 14px;
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+
+	.chart {
+		position: relative;
+		min-height: 240px;
+		border-radius: 8px;
+	}
+	.chart:focus-visible {
+		outline: 2px solid var(--text-primary);
+		outline-offset: 4px;
+	}
+	.chart :global(svg) {
+		display: block;
+		overflow: visible;
+		touch-action: pan-y;
+	}
+	.chart :global(.grid) {
+		stroke: var(--grid);
+		stroke-width: 1;
+	}
+	.chart :global(.axis) {
+		stroke: var(--axis);
+		stroke-width: 1;
+	}
+	.chart :global(.tick) {
+		fill: var(--text-muted);
+		font-size: 11px;
+	}
+	.chart :global(.area) {
+		fill: var(--series-1);
+		fill-opacity: 0.1;
+	}
+	.chart :global(.line) {
+		fill: none;
+		stroke: var(--series-1);
+		stroke-width: 2;
+		stroke-linejoin: round;
+		stroke-linecap: round;
+	}
+	/* Dots carry a 2px ring in the surface colour so they stay clear where they meet the line. */
+	.chart :global(.end-dot),
+	.chart :global(.hover-dot) {
+		fill: var(--series-1);
+		stroke: var(--surface-1);
+		stroke-width: 2;
+	}
+	.chart :global(.guide) {
+		stroke: var(--text-muted);
+		stroke-width: 1;
+	}
+	.chart :global([hidden]) {
+		display: none;
+	}
+
+	.tooltip {
+		position: absolute;
+		z-index: 2;
+		min-width: 120px;
+		padding: 8px 12px;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--surface-1);
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+		pointer-events: none;
+		font-size: 12px;
+	}
+	.tooltip[hidden] {
+		display: none;
+	}
+	.tooltip :global(.tt-date) {
+		margin-bottom: 4px;
+		color: var(--text-secondary);
+	}
+	.tooltip :global(.tt-row) {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.tooltip :global(.tt-key) {
+		width: 14px;
+		height: 2px;
+		border-radius: 1px;
+		background: var(--series-1);
+	}
+	.tooltip :global(strong) {
+		font-size: 15px;
+		color: var(--text-primary);
+	}
+	.tooltip :global(.tt-label) {
+		color: var(--text-secondary);
+	}
+
+	.insight {
+		margin: 12px 0 8px;
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+	.link {
+		padding: 6px 0;
+		border: 0;
+		background: none;
+		color: var(--text-primary);
+		font: inherit;
+		font-size: 13px;
+		font-weight: 600;
+		text-decoration: underline;
+		text-underline-offset: 3px;
+	}
+	.link:focus-visible {
+		outline: 2px solid var(--text-primary);
+		outline-offset: 2px;
+		border-radius: 4px;
+	}
+	.table-wrap {
+		max-height: 280px;
+		margin-top: 8px;
+		overflow: auto;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+	}
+	.table-wrap[hidden] {
+		display: none;
+	}
+	table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 13px;
+	}
+	/* The body rows are built by the script, so they carry no scoped attribute: reach them with :global. */
+	table :global(th),
+	table :global(td) {
+		padding: 8px 14px;
+		text-align: left;
+	}
+	thead th {
+		position: sticky;
+		top: 0;
+		background: #fafafa;
+		border-bottom: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-size: 12px;
+	}
+	tbody :global(tr + tr > *) {
+		border-top: 1px solid var(--bg-soft);
+	}
+	tbody :global(th) {
+		font-weight: 400;
+	}
+	table :global(.num) {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+
+	@media (max-width: 480px) {
+		.card {
+			padding: 14px 12px;
+		}
+		.kpi-value {
+			font-size: 26px;
+		}
+		.range {
+			padding: 0 12px;
+		}
+	}
+</style>

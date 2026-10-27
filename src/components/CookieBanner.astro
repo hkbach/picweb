@@ -1,0 +1,132 @@
+<div class="cookie-bar" id="cookie-bar" role="region" aria-label="Cookie notice" hidden>
+	<p class="text">
+		We use cookies and similar storage to keep you signed in and remember your settings. You can accept them or decline the optional ones.
+	</p>
+	<div class="actions">
+		<button type="button" class="btn ghost" data-cookie="declined">Decline</button>
+		<button type="button" class="btn solid" data-cookie="accepted">Accept cookies</button>
+	</div>
+</div>
+
+<script>
+	const KEY = 'picweb-cookie-consent';
+	const bar = document.querySelector<HTMLElement>('#cookie-bar');
+
+	// Storage can be blocked (private window, site data off); then the bar simply shows on every visit.
+	const read = () => {
+		try {
+			return localStorage.getItem(KEY);
+		} catch {
+			return null;
+		}
+	};
+
+	if (bar && read() === null) {
+		// Lets other fixed elements (the back-to-top button) sit above the bar instead of under it.
+		const syncHeight = () => document.documentElement.style.setProperty('--cookie-bar-h', bar.hidden ? '0px' : `${bar.offsetHeight}px`);
+
+		bar.hidden = false;
+		syncHeight();
+		window.addEventListener('resize', syncHeight);
+		requestAnimationFrame(() => bar.classList.add('visible'));
+
+		bar.querySelectorAll<HTMLButtonElement>('[data-cookie]').forEach((button) =>
+			button.addEventListener('click', () => {
+				const choice = button.dataset.cookie!;
+				try {
+					localStorage.setItem(KEY, choice);
+				} catch {
+					// Not stored: the choice only lasts for this page view.
+				}
+				document.dispatchEvent(new CustomEvent('cookie:consent', { detail: { choice } }));
+				bar.classList.remove('visible');
+				bar.hidden = true;
+				window.removeEventListener('resize', syncHeight);
+				syncHeight();
+			}),
+		);
+	}
+</script>
+
+<style>
+	.cookie-bar {
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 30;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px 24px;
+		padding: 14px 24px;
+		background: #fff;
+		border-top: 1px solid var(--border);
+		box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.1);
+		transform: translateY(100%);
+		transition: transform 0.3s ease;
+	}
+	.cookie-bar[hidden] {
+		display: none;
+	}
+	.cookie-bar.visible {
+		transform: none;
+	}
+	.text {
+		margin: 0;
+		font-size: 14px;
+		line-height: 1.5;
+		color: var(--text);
+	}
+	.actions {
+		display: flex;
+		flex: none;
+		gap: 8px;
+	}
+	.btn {
+		min-height: 40px;
+		padding: 0 18px;
+		border-radius: 8px;
+		border: 1px solid var(--border);
+		font: inherit;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background 0.15s, border-color 0.15s;
+	}
+	.btn.ghost {
+		background: #fff;
+		color: var(--text);
+	}
+	.btn.ghost:hover {
+		border-color: var(--text);
+	}
+	.btn.solid {
+		background: var(--text);
+		border-color: var(--text);
+		color: #fff;
+	}
+	.btn.solid:hover {
+		background: #333;
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	@media (max-width: 600px) {
+		.cookie-bar {
+			flex-direction: column;
+			align-items: stretch;
+			padding: 14px 16px;
+		}
+		.actions .btn {
+			flex: 1;
+			min-height: 44px;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.cookie-bar {
+			transition: none;
+		}
+	}
+</style>

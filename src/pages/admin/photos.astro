@@ -1,0 +1,572 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+---
+
+<AdminLayout title="Downloaded photos" heading="Downloaded photos">
+	<p class="intro">
+		Photos the Crawling page downloaded to this server and that are still stored in the <strong id="folder-name">photos_dowloaded</strong> folder.
+		Deleting a photo here removes the file for good. Each photo is named by a code made from its content, so the same picture is only ever
+		stored once.
+	</p>
+
+	<div class="summary" id="summary" aria-live="polite"></div>
+
+	<div class="toolbar" id="toolbar" hidden>
+		<label class="select-all">
+			<input type="checkbox" id="select-all" />
+			<span>Select all</span>
+		</label>
+		<p class="picked" id="picked" aria-live="polite"></p>
+		<div class="actions">
+			<button type="button" class="btn danger-outline" id="delete-selected" disabled>Delete selected</button>
+			<button type="button" class="btn danger" id="delete-all">Delete all</button>
+			<button type="button" class="btn ghost" id="refresh">Refresh</button>
+		</div>
+	</div>
+
+	<p class="status" id="status" role="status"></p>
+
+	<ul class="grid" id="grid"></ul>
+
+	<p class="empty" id="empty" hidden></p>
+	<button type="button" class="btn ghost" id="retry" hidden>Try again</button>
+
+	<dialog id="confirm-dialog" class="dialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+		<h2 id="confirm-title"></h2>
+		<p class="dialog-text" id="confirm-text"></p>
+		<p class="dialog-note">This cannot be undone. A photo that is still listed in an unfinished Create new album form will stop loading there.</p>
+		<div class="dialog-actions">
+			<button type="button" class="dialog-btn ghost" id="confirm-cancel" autofocus>Cancel</button>
+			<button type="button" class="dialog-btn danger" id="confirm-delete">Delete</button>
+		</div>
+	</dialog>
+
+	<template id="card-template">
+		<li class="card">
+			<label class="pick">
+				<input type="checkbox" class="check" />
+				<span class="visually-hidden pick-label"></span>
+			</label>
+			<a class="thumb" target="_blank" rel="noopener noreferrer">
+				<img alt="" loading="lazy" decoding="async" />
+			</a>
+			<div class="meta">
+				<p class="name"></p>
+				<p class="info"></p>
+			</div>
+		</li>
+	</template>
+</AdminLayout>
+
+<script>
+	import { deleteDownloadedPhotos, listDownloadedPhotos, type StoredPhoto } from '../../scripts/photos-api';
+	import { forgetDownloadedNames } from '../../scripts/album-draft';
+
+	const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
+	const grid = $<HTMLUListElement>('#grid');
+	const summary = $<HTMLElement>('#summary');
+	const toolbar = $<HTMLElement>('#toolbar');
+	const selectAll = $<HTMLInputElement>('#select-all');
+	const picked = $<HTMLElement>('#picked');
+	const deleteSelected = $<HTMLButtonElement>('#delete-selected');
+	const deleteAll = $<HTMLButtonElement>('#delete-all');
+	const refreshButton = $<HTMLButtonElement>('#refresh');
+	const retryButton = $<HTMLButtonElement>('#retry');
+	const statusLine = $<HTMLElement>('#status');
+	const empty = $<HTMLElement>('#empty');
+	const template = $<HTMLTemplateElement>('#card-template');
+	const dialog = $<HTMLDialogElement>('#confirm-dialog');
+
+	let photos: StoredPhoto[] = [];
+	let others = 0;
+	let maxFiles = 0;
+	let folder = 'photos_dowloaded';
+	const selected = new Set<string>();
+	let busy = false;
+	// False until the first answer arrives, so "the folder is clean" is never shown while still loading.
+	let loaded = false;
+
+	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+	const size = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : bytes === 0 ? '0 KB' : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+	const when = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+
+	const say = (message: string, isError = false) => {
+		statusLine.textContent = message;
+		statusLine.classList.toggle('is-error', isError);
+	};
+
+	const setBusy = (value: boolean) => {
+		busy = value;
+		render();
+	};
+
+	// Everything on the page is drawn from `photos` and `selected`, so it always agrees with itself.
+	const render = () => {
+		// Still waiting for an answer and nothing to show yet (first load, or a retry after an error).
+		if (!loaded || (busy && photos.length === 0)) {
+			summary.textContent = 'Loading…';
+			summary.hidden = false;
+			toolbar.hidden = true;
+			empty.hidden = true;
+			return;
+		}
+		grid.replaceChildren();
+		for (const photo of photos) {
+			const card = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+			const check = card.querySelector<HTMLInputElement>('.check')!;
+			check.checked = selected.has(photo.name);
+			check.disabled = busy;
+			card.classList.toggle('is-selected', check.checked);
+			card.querySelector<HTMLElement>('.pick-label')!.textContent = `Select ${photo.name}`;
+			check.addEventListener('change', () => {
+				if (check.checked) selected.add(photo.name);
+				else selected.delete(photo.name);
+				render();
+				// The card was redrawn, so put keyboard focus back on its checkbox.
+				grid.querySelector<HTMLInputElement>(`[data-name="${CSS.escape(photo.name)}"] .check`)?.focus();
+			});
+			card.dataset.name = photo.name;
+
+			const link = card.querySelector<HTMLAnchorElement>('.thumb')!;
+			link.href = `/api/admin/photos/${encodeURIComponent(photo.name)}`;
+			link.setAttribute('aria-label', `Open ${photo.name} in a new tab`);
+			card.querySelector<HTMLImageElement>('img')!.src = link.href;
+			card.querySelector<HTMLElement>('.name')!.textContent = photo.name;
+			card.querySelector<HTMLElement>('.info')!.textContent = `${photo.type.toUpperCase()} · ${size(photo.bytes)} · ${when.format(new Date(photo.modified))}`;
+			grid.append(card);
+		}
+
+		const total = photos.reduce((sum, p) => sum + p.bytes, 0);
+		const count = selected.size;
+		const hasPhotos = photos.length > 0;
+
+		toolbar.hidden = !hasPhotos;
+		selectAll.checked = hasPhotos && count === photos.length;
+		selectAll.indeterminate = count > 0 && count < photos.length;
+		selectAll.disabled = busy;
+		picked.textContent = count > 0 ? `${count} selected` : '';
+		deleteSelected.textContent = count > 0 ? `Delete selected (${count})` : 'Delete selected';
+		deleteSelected.disabled = busy || count === 0;
+		deleteAll.disabled = busy || !hasPhotos;
+		refreshButton.disabled = busy;
+
+		const parts = [`${plural(photos.length, 'photo')} stored`, size(total) + ' in total', `${folder} (limit ${maxFiles.toLocaleString('en-US')})`];
+		summary.textContent = parts.join(' · ');
+		if (others > 0) summary.textContent += `. ${plural(others, 'other file')} in the folder ${others === 1 ? 'was' : 'were'} not put there by this site, so ${others === 1 ? 'it is' : 'they are'} not shown and never touched.`;
+		summary.hidden = false;
+
+		empty.hidden = hasPhotos || retryButton.hidden === false;
+		if (!hasPhotos && retryButton.hidden) empty.textContent = 'No downloaded photos are stored. The folder is clean.';
+	};
+
+	const load = async () => {
+		retryButton.hidden = true; // an error from the last attempt is no longer current
+		setBusy(true);
+		say('');
+		try {
+			const listing = await listDownloadedPhotos();
+			photos = listing.photos;
+			others = listing.others;
+			maxFiles = listing.maxFiles;
+			folder = listing.folder;
+			$('#folder-name').textContent = folder;
+			// A name that is no longer in the folder cannot stay selected.
+			for (const name of [...selected]) if (!photos.some((p) => p.name === name)) selected.delete(name);
+			busy = false;
+			loaded = true;
+			render();
+		} catch (error) {
+			photos = [];
+			selected.clear();
+			busy = false;
+			loaded = true;
+			render();
+			summary.hidden = true;
+			toolbar.hidden = true;
+			empty.hidden = false;
+			empty.textContent = error instanceof Error ? error.message : 'The list could not be loaded.';
+			retryButton.hidden = false;
+		}
+	};
+
+	// ---- confirm, then delete exactly the names that were on screen
+	const confirmDelete = (title: string, text: string): Promise<boolean> =>
+		new Promise((resolve) => {
+			$('#confirm-title').textContent = title;
+			$('#confirm-text').textContent = text;
+			dialog.returnValue = '';
+			const finish = () => {
+				dialog.removeEventListener('close', finish);
+				resolve(dialog.returnValue === 'delete');
+			};
+			dialog.addEventListener('close', finish);
+			dialog.showModal();
+		});
+	$('#confirm-cancel').addEventListener('click', () => dialog.close('cancel'));
+	$('#confirm-delete').addEventListener('click', () => dialog.close('delete'));
+	dialog.addEventListener('click', (e) => {
+		if (e.target === dialog) dialog.close('cancel');
+	});
+
+	const remove = async (names: string[]) => {
+		setBusy(true);
+		say(`Deleting ${plural(names.length, 'photo')}…`);
+		const report = await deleteDownloadedPhotos(names);
+		// Keep this tab's "to clean up later" list in step with what is really on the server.
+		forgetDownloadedNames(report.deleted);
+		photos = photos.filter((p) => !report.deleted.includes(p.name));
+		for (const name of report.deleted) selected.delete(name);
+		// Show the folder as it really is now: a photo downloaded while this page was open (and so never
+		// deleted unseen) appears in the list instead of the page claiming the folder is clean.
+		await load();
+
+		const parts = [];
+		if (report.deleted.length > 0) parts.push(`Deleted ${plural(report.deleted.length, 'photo')}.`);
+		if (report.failed.length > 0) parts.push(`${plural(report.failed.length, 'photo')} could not be deleted and ${report.failed.length === 1 ? 'is' : 'are'} still listed. Try again.`);
+		say(parts.join(' '), report.failed.length > 0);
+		// With the folder now empty the toolbar is hidden and its buttons cannot take focus,
+		// so keyboard users land on the result message instead of the top of the page.
+		if (toolbar.hidden) {
+			statusLine.tabIndex = -1;
+			statusLine.focus();
+		} else {
+			refreshButton.focus();
+		}
+	};
+
+	deleteSelected.addEventListener('click', async () => {
+		const names = photos.filter((p) => selected.has(p.name)).map((p) => p.name);
+		if (names.length === 0) return;
+		if (!(await confirmDelete(`Delete ${plural(names.length, 'selected photo')}?`, `${plural(names.length, 'photo')} will be permanently deleted from the ${folder} folder.`))) return;
+		await remove(names);
+	});
+
+	deleteAll.addEventListener('click', async () => {
+		// Exactly what is on screen: a photo that arrived after this list was loaded is not deleted unseen.
+		const names = photos.map((p) => p.name);
+		if (names.length === 0) return;
+		const text = `All ${plural(names.length, 'photo')} shown here will be permanently deleted from the ${folder} folder.`;
+		if (!(await confirmDelete(names.length === 1 ? 'Delete the photo?' : `Delete all ${names.length} photos?`, text))) return;
+		await remove(names);
+	});
+
+	selectAll.addEventListener('change', () => {
+		if (selectAll.checked) for (const p of photos) selected.add(p.name);
+		else selected.clear();
+		render();
+	});
+	refreshButton.addEventListener('click', async () => {
+		await load();
+		say(`List refreshed: ${plural(photos.length, 'photo')}.`);
+	});
+	retryButton.addEventListener('click', load);
+
+	load();
+</script>
+
+<style>
+	.intro {
+		max-width: 720px;
+		margin: -8px 0 16px;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.intro strong {
+		color: var(--text);
+	}
+	.summary {
+		margin: 0 0 16px;
+		font-size: 14px;
+		color: var(--text);
+		overflow-wrap: anywhere;
+	}
+	.summary[hidden],
+	.toolbar[hidden],
+	.empty[hidden],
+	.btn[hidden] {
+		display: none;
+	}
+
+	.toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 12px 16px;
+		margin-bottom: 8px;
+		padding: 10px 14px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.select-all {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+	}
+	.select-all input,
+	.card :global(.check) {
+		width: 18px;
+		height: 18px;
+		margin: 0;
+		accent-color: var(--text);
+		cursor: pointer;
+	}
+	.picked {
+		margin: 0;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-left: auto;
+	}
+
+	.status {
+		min-height: 1.4em;
+		margin: 4px 0 12px;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.status.is-error {
+		color: #c62828;
+	}
+
+	.grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+		gap: 16px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	/* Cards come from the template, so their parts need :global. */
+	.grid :global(.card) {
+		position: relative;
+		min-width: 0;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		overflow: hidden;
+		background: #fff;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	.grid :global(.card.is-selected) {
+		border-color: var(--text);
+		box-shadow: 0 0 0 1px var(--text);
+	}
+	.grid :global(.pick) {
+		position: absolute;
+		top: 8px;
+		left: 8px;
+		z-index: 1;
+		display: grid;
+		place-items: center;
+		width: 34px;
+		height: 34px;
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.92);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+		cursor: pointer;
+	}
+	.grid :global(.check:focus-visible) {
+		outline: 2px solid var(--text);
+		outline-offset: 3px;
+	}
+	.grid :global(.thumb) {
+		display: block;
+		aspect-ratio: 4 / 3;
+		background: var(--bg-soft);
+	}
+	.grid :global(.thumb:focus-visible) {
+		outline: 2px solid var(--text);
+		outline-offset: -2px;
+	}
+	.grid :global(.thumb img) {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+	.grid :global(.meta) {
+		padding: 10px 12px 12px;
+	}
+	.grid :global(.name) {
+		margin: 0 0 2px;
+		font-size: 13px;
+		font-weight: 600;
+		overflow-wrap: anywhere;
+	}
+	.grid :global(.info) {
+		margin: 0;
+		font-size: 12px;
+		color: var(--muted);
+	}
+
+	.empty {
+		margin: 8px 0;
+		padding: 28px 16px;
+		border: 1px dashed var(--border);
+		border-radius: 12px;
+		text-align: center;
+		color: var(--muted);
+	}
+
+	.btn {
+		height: 40px;
+		padding: 0 18px;
+		border-radius: 999px;
+		font: inherit;
+		font-size: 14px;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
+	}
+	.btn:active:not(:disabled) {
+		transform: scale(0.97);
+	}
+	.btn:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.danger {
+		border: 0;
+		background: #c62828;
+		color: #fff;
+	}
+	.danger:hover:not(:disabled) {
+		background: #a81f1f;
+	}
+	.danger-outline {
+		border: 1.5px solid #c62828;
+		background: transparent;
+		color: #c62828;
+	}
+	.danger-outline:hover:not(:disabled) {
+		background: #c62828;
+		color: #fff;
+	}
+	.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.ghost:hover:not(:disabled) {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+
+	/* Confirmation dialog, in the same style as the other admin dialogs. */
+	.dialog {
+		width: min(440px, calc(100vw - 32px));
+		padding: 28px;
+		border: 0;
+		border-radius: 12px;
+		color: var(--text);
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+		opacity: 0;
+		transform: translateY(16px) scale(0.96);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open] {
+		opacity: 1;
+		transform: none;
+	}
+	.dialog::backdrop {
+		background: rgba(0, 0, 0, 0);
+		transition:
+			background 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open]::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+	}
+	@starting-style {
+		.dialog[open] {
+			opacity: 0;
+			transform: translateY(16px) scale(0.96);
+		}
+		.dialog[open]::backdrop {
+			background: rgba(0, 0, 0, 0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.dialog,
+		.dialog::backdrop {
+			transition: none;
+		}
+	}
+	.dialog h2 {
+		margin: 0 0 12px;
+		font-size: 20px;
+	}
+	.dialog-text {
+		margin: 0 0 10px;
+		font-size: 15px;
+		overflow-wrap: anywhere;
+	}
+	.dialog-note {
+		margin: 0;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.dialog-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 20px;
+	}
+	.dialog-btn {
+		height: 44px;
+		padding: 0 24px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, transform 0.1s;
+	}
+	.dialog-btn:active {
+		transform: scale(0.97);
+	}
+	.dialog-btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.dialog-btn.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.dialog-btn.ghost:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	.dialog-btn.danger {
+		border: 0;
+		background: #c62828;
+		color: #fff;
+	}
+	.dialog-btn.danger:hover {
+		background: #a81f1f;
+	}
+
+	@media (max-width: 600px) {
+		.grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 12px;
+		}
+		.actions {
+			width: 100%;
+			margin-left: 0;
+		}
+	}
+</style>

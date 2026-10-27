@@ -1,0 +1,151 @@
+---
+import { photoUrl, type Photo } from '../data/photos';
+
+interface Props {
+	photo: Photo;
+}
+
+const { photo } = Astro.props;
+---
+
+<figure class="card">
+	<a href="#" class="media" data-photo-id={photo.id} aria-label={`Open album: ${photo.alt}`}>
+		<img
+			src={photoUrl(photo)}
+			alt={photo.alt}
+			width={photo.width}
+			height={photo.height}
+			loading="lazy"
+			decoding="async"
+		/>
+		<div class="overlay">
+			<div class="top">
+				<span class="chip icon" data-requires-login title="Like">♡</span>
+				<span class="chip icon" data-requires-login title="Add to collection">＋</span>
+			</div>
+			<div class="bottom">
+				<span class="chip download" data-requires-login title="Download">
+					<span aria-hidden="true">↓</span>
+					<span class="label-user">Download</span>
+					<span class="label-guest">Login to download</span>
+				</span>
+			</div>
+		</div>
+	</a>
+</figure>
+
+<script>
+	// Like / add to collection / download need an account: guests get the login popup instead.
+	document.addEventListener('click', (e) => {
+		const target = e.target as HTMLElement;
+		if (!target.closest('[data-requires-login]')) return;
+		e.preventDefault();
+		if (document.documentElement.dataset.auth === 'guest') {
+			document.querySelector<HTMLElement>('[data-open-login]')?.click();
+		}
+	});
+</script>
+
+<style>
+	.card {
+		margin: 0 0 var(--gutter);
+		break-inside: avoid;
+	}
+	.media {
+		position: relative;
+		display: block;
+		background: var(--bg-soft);
+		border-radius: 4px;
+		overflow: hidden;
+	}
+	img {
+		display: block;
+		width: 100%;
+		height: auto;
+	}
+	.overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		padding: 12px;
+		color: #fff;
+		opacity: 0;
+		transition: opacity 0.15s;
+		background: linear-gradient(rgba(0, 0, 0, 0.25), transparent 30%, transparent 70%, rgba(0, 0, 0, 0.35));
+	}
+	.media:hover .overlay,
+	.media:focus-visible .overlay {
+		opacity: 1;
+	}
+	.top,
+	.bottom {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 8px;
+	}
+	.top,
+	.bottom {
+		justify-content: flex-end;
+	}
+	.chip {
+		display: grid;
+		place-items: center;
+		min-width: 32px;
+		height: 32px;
+		padding: 0 8px;
+		border-radius: 4px;
+		background: rgba(255, 255, 255, 0.92);
+		color: var(--muted);
+	}
+	.icon {
+		min-width: 48px;
+		height: 48px;
+		font-size: 24px;
+	}
+	.download {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0 12px;
+		font-size: 14px;
+		font-weight: 500;
+		white-space: nowrap;
+	}
+	/* Two photos per row on mobile: too narrow for the text label, keep the arrow only. */
+	@media (max-width: 639px) {
+		:global(html[data-cols='2']) .label-user,
+		:global(html[data-cols='2']) .label-guest {
+			display: none;
+		}
+		:global(html[data-cols='2']) .download {
+			min-width: 48px;
+			height: 48px;
+			padding: 0;
+			justify-content: center;
+			font-size: 24px;
+		}
+	}
+	:global(html[data-auth='guest']) .label-user,
+	:global(html:not([data-auth='guest'])) .label-guest {
+		display: none;
+	}
+	/*
+	 * The overlay is invisible until hovered, but invisible buttons still receive taps. Keep the
+	 * buttons inert unless the pointer can really hover and is over the photo; on touch screens a
+	 * tap there falls through to the photo and opens the album.
+	 */
+	.chip {
+		pointer-events: none;
+	}
+	@media (hover: hover) {
+		.media:hover .chip {
+			pointer-events: auto;
+		}
+	}
+	.chip:hover {
+		color: var(--text);
+	}
+</style>

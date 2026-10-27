@@ -1,0 +1,147 @@
+---
+interface Props {
+	topics: string[];
+}
+
+const { topics } = Astro.props;
+// The first category is the one selected by default and is set apart from the rest.
+const [first, ...rest] = topics;
+---
+
+<nav class="topics" aria-label="Topics" data-topics>
+	<div class="container wrap">
+		<button type="button" class="arrow prev" aria-label="Scroll topics left" data-dir="-1">
+			<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M15.4 5.4L14 4l-8 8 8 8 1.4-1.4L8.8 12z" fill="currentColor" />
+			</svg>
+		</button>
+		<div class="list" data-list>
+			<a href="#" class="active">{first}</a>
+			{rest.length > 0 && <span class="sep" aria-hidden="true" />}
+			{rest.map((t) => <a href="#">{t}</a>)}
+		</div>
+		<button type="button" class="arrow next" aria-label="Scroll topics right" data-dir="1">
+			<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M8.6 5.4L10 4l8 8-8 8-1.4-1.4L15.2 12z" fill="currentColor" />
+			</svg>
+		</button>
+	</div>
+</nav>
+
+<script>
+	const nav = document.querySelector<HTMLElement>('[data-topics]');
+	const list = nav?.querySelector<HTMLElement>('[data-list]');
+	const prev = nav?.querySelector<HTMLElement>('.prev');
+	const next = nav?.querySelector<HTMLElement>('.next');
+
+	if (nav && list && prev && next) {
+		// Show each arrow only when there is more to scroll in that direction.
+		const update = () => {
+			const max = list.scrollWidth - list.clientWidth;
+			prev.classList.toggle('show', list.scrollLeft > 1);
+			next.classList.toggle('show', list.scrollLeft < max - 1);
+		};
+
+		nav.querySelectorAll<HTMLElement>('.arrow').forEach((btn) => {
+			btn.addEventListener('click', () => {
+				const dir = Number(btn.dataset.dir);
+				const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+				list.scrollBy({ left: dir * list.clientWidth * 0.6, behavior: reduce ? 'auto' : 'smooth' });
+			});
+		});
+
+		list.addEventListener('scroll', update, { passive: true });
+		new ResizeObserver(update).observe(list);
+		update();
+	}
+</script>
+
+<style>
+	.topics {
+		position: sticky;
+		top: 64px;
+		z-index: 9;
+		background: var(--bg);
+		border-bottom: 1px solid var(--bg-soft);
+	}
+	.wrap {
+		position: relative;
+	}
+	.list {
+		display: flex;
+		align-items: center;
+		gap: 24px;
+		height: 48px;
+		overflow-x: auto;
+		white-space: nowrap;
+		scrollbar-width: none;
+		font-size: 14px;
+	}
+	.list::-webkit-scrollbar {
+		display: none;
+	}
+	a {
+		color: var(--muted);
+		height: 100%;
+		display: flex;
+		align-items: center;
+		border-bottom: 2px solid transparent;
+	}
+	a:hover {
+		color: var(--text);
+	}
+	a.active {
+		color: var(--text);
+		border-bottom-color: var(--text);
+	}
+	.sep {
+		width: 1px;
+		height: 24px;
+		background: var(--border);
+	}
+	.arrow {
+		position: absolute;
+		top: 0;
+		z-index: 1;
+		display: grid;
+		width: 56px;
+		height: 100%;
+		border: 0;
+		padding: 0;
+		color: var(--text);
+		opacity: 0;
+		visibility: hidden;
+		transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+	}
+	.arrow.show {
+		opacity: 1;
+		visibility: visible;
+		transition: opacity 0.2s ease, visibility 0s;
+	}
+	.arrow svg {
+		align-self: center;
+	}
+	.prev {
+		left: var(--gutter);
+		justify-items: start;
+		background: linear-gradient(to right, var(--bg) 55%, transparent);
+	}
+	.next {
+		right: var(--gutter);
+		justify-items: end;
+		background: linear-gradient(to left, var(--bg) 55%, transparent);
+	}
+	.arrow:hover svg {
+		transform: scale(1.15);
+	}
+	.arrow:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: -2px;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.arrow,
+		.arrow.show {
+			transition: none;
+		}
+	}
+</style>

@@ -1,0 +1,847 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+---
+
+<AdminLayout title="Crawling" heading="Crawling">
+	<form class="crawl" id="crawl-form" novalidate>
+		<div class="field">
+			<label for="target-url">Target URL</label>
+			<div class="row">
+				<input
+					id="target-url"
+					name="targetUrl"
+					type="url"
+					inputmode="url"
+					placeholder="https://example.com"
+					autocomplete="off"
+					spellcheck="false"
+					aria-describedby="target-url-error"
+				/>
+				<button type="submit" class="btn" id="crawl-button">Crawl</button>
+			</div>
+			<p class="error" id="target-url-error" role="alert"></p>
+		</div>
+	</form>
+
+	<p class="status" id="crawl-status" role="status"></p>
+
+	<section class="results" id="crawl-results" aria-labelledby="results-title" hidden>
+		<div class="results-head">
+			<h2 id="results-title"></h2>
+			<div class="head-actions">
+				<button type="button" class="create" id="create-album">Create album from these images</button>
+				<button type="button" class="create solid" id="download-album">Download and create new album</button>
+			</div>
+		</div>
+		<p class="note" id="album-note"></p>
+		<ul class="grid" id="crawl-list"></ul>
+	</section>
+
+	<dialog id="download-dialog" class="dialog" aria-labelledby="download-title">
+		<h2 id="download-title">Download images and create album?</h2>
+		<p class="dialog-text" id="download-text"></p>
+		<p class="dialog-note">
+			The images are saved in the photos_dowloaded folder on this server. You review them in the new album before it is created. Make sure
+			you have the right to use them.
+		</p>
+		<p class="dialog-note" id="download-limit" hidden></p>
+		<div class="dialog-actions">
+			<button type="button" class="dialog-btn ghost" id="download-cancel" autofocus>Cancel</button>
+			<button type="button" class="dialog-btn primary" id="download-confirm">Download</button>
+		</div>
+	</dialog>
+
+	<dialog id="progress-dialog" class="dialog" aria-labelledby="progress-title">
+		<h2 id="progress-title">Downloading images…</h2>
+		<div class="bar" id="progress-bar" role="progressbar" aria-labelledby="progress-title" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0">
+			<div class="bar-fill" id="progress-fill"></div>
+		</div>
+		<p class="dialog-text" id="progress-text" aria-live="polite"></p>
+		<p class="dialog-note" id="progress-fail" hidden></p>
+		<div class="dialog-actions">
+			<button type="button" class="dialog-btn ghost" id="progress-cancel">Cancel download</button>
+		</div>
+	</dialog>
+
+	<dialog id="result-dialog" class="dialog" aria-labelledby="result-title" aria-describedby="result-text">
+		<h2 id="result-title"></h2>
+		<p class="dialog-text" id="result-text"></p>
+		<ul class="result-errors" id="result-errors" hidden></ul>
+		<div class="dialog-actions">
+			<button type="button" class="dialog-btn ghost" id="result-close" hidden>Close</button>
+			<button type="button" class="dialog-btn primary" id="result-continue">Continue</button>
+		</div>
+	</dialog>
+</AdminLayout>
+
+<script>
+	import { MAX_ALBUM_PHOTOS, saveDraft, saveDownloadedDraft, rememberDownloadedNames, savedNameFromUrl } from '../../scripts/album-draft';
+
+	const createButton = document.querySelector<HTMLButtonElement>('#create-album')!;
+	const downloadButton = document.querySelector<HTMLButtonElement>('#download-album')!;
+	const downloadDialog = document.querySelector<HTMLDialogElement>('#download-dialog')!;
+	const downloadText = document.querySelector<HTMLElement>('#download-text')!;
+	const downloadLimit = document.querySelector<HTMLElement>('#download-limit')!;
+	const albumNote = document.querySelector<HTMLElement>('#album-note')!;
+	// Remembers which page the images on screen came from, for the album draft.
+	let lastCrawl = { title: '', source: '' };
+
+	const form = document.querySelector<HTMLFormElement>('#crawl-form')!;
+	const input = document.querySelector<HTMLInputElement>('#target-url')!;
+	const error = document.querySelector<HTMLElement>('#target-url-error')!;
+	const button = document.querySelector<HTMLButtonElement>('#crawl-button')!;
+	const status = document.querySelector<HTMLElement>('#crawl-status')!;
+	const results = document.querySelector<HTMLElement>('#crawl-results')!;
+	const resultsTitle = document.querySelector<HTMLElement>('#results-title')!;
+	const list = document.querySelector<HTMLUListElement>('#crawl-list')!;
+
+	interface FoundImage {
+		url: string;
+		alt: string;
+		width: number;
+		height: number;
+		source: 'img' | 'css' | 'meta';
+	}
+	interface CrawlResponse {
+		finalUrl: string;
+		title: string;
+		images: FoundImage[];
+		blockedRequests: number;
+	}
+
+	const isHttpUrl = (value: string) => {
+		try {
+			const { protocol } = new URL(value);
+			return protocol === 'http:' || protocol === 'https:';
+		} catch {
+			return false;
+		}
+	};
+
+	const showFieldError = (message: string) => {
+		error.textContent = message;
+		input.setAttribute('aria-invalid', String(Boolean(message)));
+	};
+
+	const setStatus = (message: string, isError = false) => {
+		status.textContent = message;
+		status.classList.toggle('is-error', isError);
+	};
+
+	const check = () => {
+		const value = input.value.trim();
+		showFieldError(value !== '' && !isHttpUrl(value) ? 'Enter a full URL starting with http:// or https://' : '');
+	};
+	input.addEventListener('input', check);
+	input.addEventListener('blur', check);
+
+	resultsTitle.tabIndex = -1; // lets focus land here when the last thumbnail is removed
+	resultsTitle.setAttribute('aria-live', 'polite');
+	const updateTitle = () => {
+		const count = list.children.length;
+		resultsTitle.textContent = count === 0 ? 'No images left' : `${count} image${count === 1 ? '' : 's'} found`;
+		createButton.hidden = count === 0;
+		downloadButton.hidden = count === 0;
+		albumNote.textContent =
+			count > MAX_ALBUM_PHOTOS ? `An album holds up to ${MAX_ALBUM_PHOTOS} photos, so only the first ${MAX_ALBUM_PHOTOS} will be used.` : '';
+	};
+
+	createButton.addEventListener('click', () => {
+		const photos = Array.from(list.children)
+			.slice(0, MAX_ALBUM_PHOTOS)
+			.map((item) => ({ url: (item as HTMLElement).dataset.url ?? '', alt: (item as HTMLElement).dataset.alt ?? '' }));
+		if (!saveDraft({ title: lastCrawl.title.trim().slice(0, 80), source: lastCrawl.source, photos })) {
+			setStatus('Could not hand the images over: browser storage is unavailable.', true);
+			return;
+		}
+		window.location.assign('/admin/albums/new');
+	});
+
+	// ---- Download and create new album: ask first, then hand the images that are still on screen to the service.
+	const albumPhotos = () =>
+		Array.from(list.children)
+			.slice(0, MAX_ALBUM_PHOTOS)
+			.map((item) => ({ url: (item as HTMLElement).dataset.url ?? '', alt: (item as HTMLElement).dataset.alt ?? '' }));
+	const albumTitle = () => lastCrawl.title.trim().slice(0, 80) || hostOf(lastCrawl.source);
+	function hostOf(url: string) {
+		try {
+			return new URL(url).hostname;
+		} catch {
+			return url;
+		}
+	}
+	const setBusy = (busy: boolean) => {
+		createButton.disabled = busy;
+		downloadButton.disabled = busy;
+	};
+
+	downloadButton.addEventListener('click', () => {
+		const total = list.children.length;
+		const used = Math.min(total, MAX_ALBUM_PHOTOS);
+		downloadText.textContent = `Download ${used} image${used === 1 ? '' : 's'} from ${hostOf(lastCrawl.source)} and create a new album called “${albumTitle()}”?`;
+		downloadLimit.hidden = total <= MAX_ALBUM_PHOTOS;
+		downloadLimit.textContent = `An album holds up to ${MAX_ALBUM_PHOTOS} photos, so only the first ${MAX_ALBUM_PHOTOS} of the ${total} images will be downloaded.`;
+		downloadDialog.showModal();
+	});
+	document.querySelector('#download-cancel')!.addEventListener('click', () => downloadDialog.close());
+	// Clicking the dim area around the dialog counts as Cancel.
+	downloadDialog.addEventListener('click', (e) => {
+		if (e.target === downloadDialog) downloadDialog.close();
+	});
+
+	// ---- the download itself: one request per image, a few at a time, with a progress popup
+	const CONCURRENCY = 3;
+	const progressDialog = document.querySelector<HTMLDialogElement>('#progress-dialog')!;
+	const progressBar = document.querySelector<HTMLElement>('#progress-bar')!;
+	const progressFill = document.querySelector<HTMLElement>('#progress-fill')!;
+	const progressText = document.querySelector<HTMLElement>('#progress-text')!;
+	const progressFail = document.querySelector<HTMLElement>('#progress-fail')!;
+	const resultDialog = document.querySelector<HTMLDialogElement>('#result-dialog')!;
+	const resultTitle = document.querySelector<HTMLElement>('#result-title')!;
+	const resultText = document.querySelector<HTMLElement>('#result-text')!;
+	const resultErrors = document.querySelector<HTMLUListElement>('#result-errors')!;
+	const resultContinue = document.querySelector<HTMLButtonElement>('#result-continue')!;
+	const resultClose = document.querySelector<HTMLButtonElement>('#result-close')!;
+
+	type Outcome = { ok: true; url: string; alt: string; existed: boolean } | { ok: false; label: string; error: string };
+	let controller: AbortController | null = null;
+	// What "Continue" carries over to the album form, and whether it was pressed.
+	let handover: { title: string; source: string; photos: Array<{ url: string; alt: string }> } | null = null;
+	let continuing = false;
+
+	// Hand over from one popup to the next with no fade, so the two never overlap and the dim background does not flash.
+	const swap = (from: HTMLDialogElement, to: HTMLDialogElement) => {
+		from.classList.add('instant');
+		to.classList.add('instant');
+		from.close();
+		to.showModal();
+		requestAnimationFrame(() =>
+			requestAnimationFrame(() => {
+				from.classList.remove('instant');
+				to.classList.remove('instant');
+			}),
+		);
+	};
+
+	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+	const labelFor = (url: string) => {
+		try {
+			const u = new URL(url);
+			return `${u.hostname}${u.pathname.length > 24 ? '…' + u.pathname.slice(-22) : u.pathname}`;
+		} catch {
+			return url;
+		}
+	};
+
+	const showProgress = (done: number, ok: number, failed: number, total: number) => {
+		progressFill.style.width = `${total === 0 ? 0 : (done / total) * 100}%`;
+		progressBar.setAttribute('aria-valuemax', String(total));
+		progressBar.setAttribute('aria-valuenow', String(done));
+		progressText.textContent = `Downloaded ${ok} of ${total}`;
+		progressFail.hidden = failed === 0;
+		progressFail.textContent = `${plural(failed, 'image')} could not be downloaded`;
+	};
+
+	// Reasons are shown as plain text: they can contain text that came from a third-party server.
+	const showResult = (outcomes: Outcome[], title: string, source: string) => {
+		const good = outcomes.filter((o): o is Extract<Outcome, { ok: true }> => o.ok);
+		const bad = outcomes.filter((o): o is Extract<Outcome, { ok: false }> => !o.ok);
+		// A stored picture is named after its content, so one that appears twice is one file: carry it over once.
+		const unique = [...new Map(good.map((o) => [o.url, o])).values()];
+		handover = unique.length > 0 ? { title, source, photos: unique.map((o) => ({ url: o.url, alt: o.alt })) } : null;
+		continuing = false;
+
+		// Pictures that were already in the folder (from an earlier download, or listed twice) are not stored again.
+		const already = good.filter((o) => o.existed).length;
+		const note = already === 0 ? '' : ` ${already === 1 ? '1 of them was' : `${already} of them were`} already stored, so ${already === 1 ? 'it was' : 'they were'} not saved again.`;
+
+		if (good.length === 0) {
+			resultTitle.textContent = 'Nothing was downloaded';
+			resultText.textContent = `None of the ${plural(outcomes.length, 'image')} could be downloaded.`;
+		} else if (bad.length === 0) {
+			resultTitle.textContent = 'Downloaded successfully';
+			resultText.textContent = (good.length === 1 ? 'The image was downloaded.' : `All ${good.length} images were downloaded.`) + note;
+		} else {
+			resultTitle.textContent = 'Downloaded with some errors';
+			resultText.textContent = `${good.length} of ${plural(outcomes.length, 'image')} downloaded. ${bad.length} could not be.${note}`;
+		}
+
+		resultErrors.replaceChildren(
+			...bad.slice(0, 5).map((o) => {
+				const li = document.createElement('li');
+				li.textContent = `${o.label}: ${o.error}`;
+				return li;
+			}),
+		);
+		if (bad.length > 5) {
+			const more = document.createElement('li');
+			more.textContent = `…and ${bad.length - 5} more`;
+			resultErrors.append(more);
+		}
+		resultErrors.hidden = bad.length === 0;
+		resultContinue.hidden = good.length === 0;
+		resultClose.hidden = good.length > 0;
+		swap(progressDialog, resultDialog);
+		(good.length > 0 ? resultContinue : resultClose).focus();
+	};
+
+	resultContinue.addEventListener('click', () => {
+		if (!handover || !saveDownloadedDraft(handover)) {
+			resultDialog.close();
+			return setStatus('Could not hand the photos over: browser storage is unavailable.', true);
+		}
+		continuing = true;
+		window.location.assign('/admin/albums/new#upload');
+	});
+	resultClose.addEventListener('click', () => resultDialog.close());
+	// Closing the result any other way (Escape) keeps the downloaded files and says so.
+	resultDialog.addEventListener('close', () => {
+		if (continuing) return;
+		const saved = handover?.photos.length ?? 0;
+		setStatus(saved > 0 ? `${plural(saved, 'image')} downloaded and saved in the photos_dowloaded folder.` : 'Nothing was downloaded.', saved === 0);
+	});
+
+	const cancelDownload = () => controller?.abort();
+	document.querySelector('#progress-cancel')!.addEventListener('click', cancelDownload);
+	// Escape means "stop", the same as the button; the popup itself closes when the work has stopped.
+	progressDialog.addEventListener('cancel', (e) => {
+		e.preventDefault();
+		cancelDownload();
+	});
+
+	document.querySelector('#download-confirm')!.addEventListener('click', async () => {
+		const photos = albumPhotos();
+		const title = albumTitle();
+		const source = lastCrawl.source;
+		setBusy(true);
+		setStatus('');
+
+		controller = new AbortController();
+		const { signal } = controller;
+		const outcomes: Outcome[] = new Array(photos.length);
+		let next = 0;
+		let done = 0;
+		let ok = 0;
+		let failed = 0;
+		showProgress(0, 0, 0, photos.length);
+		swap(downloadDialog, progressDialog);
+
+		const worker = async () => {
+			while (!signal.aborted) {
+				const i = next++;
+				if (i >= photos.length) return;
+				try {
+					const response = await fetch('/api/admin/download', {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ url: photos[i].url }),
+						signal,
+					});
+					const data = await response.json().catch(() => null);
+					if (!response.ok || typeof data?.url !== 'string') throw new Error(data?.error ?? `Request failed (${response.status}).`);
+					outcomes[i] = { ok: true, url: data.url, alt: photos[i].alt, existed: data.existed === true };
+					ok++;
+				} catch (error) {
+					if (signal.aborted) return;
+					outcomes[i] = { ok: false, label: labelFor(photos[i].url), error: error instanceof Error ? error.message : 'Download failed.' };
+					failed++;
+				}
+				done++;
+				showProgress(done, ok, failed, photos.length);
+			}
+		};
+		await Promise.all(Array.from({ length: Math.min(CONCURRENCY, photos.length) }, worker));
+
+		const cancelled = signal.aborted;
+		controller = null;
+		setBusy(false);
+
+		// Remember what is now on the server, so the Clear button of Create new album can delete it later,
+		// even if the photos are not used or the page is reloaded.
+		rememberDownloadedNames(
+			outcomes.flatMap((o) => (o && o.ok ? [savedNameFromUrl(o.url) ?? ''] : [])).filter(Boolean),
+		);
+
+		if (cancelled) {
+			progressDialog.close();
+			return setStatus(`Download cancelled. ${plural(ok, 'image')} of ${photos.length} ${ok === 1 ? 'was' : 'were'} saved in the photos_dowloaded folder.`, ok === 0);
+		}
+		showResult(outcomes, title, source);
+	});
+
+	// Built with DOM methods and textContent only, because every value comes from a third-party page.
+	const render = (data: CrawlResponse) => {
+		list.replaceChildren();
+		lastCrawl = { title: data.title, source: data.finalUrl };
+		const images = data.images.filter((img) => isHttpUrl(img.url));
+
+		for (const img of images) {
+			const item = document.createElement('li');
+			item.className = 'card';
+			item.dataset.url = img.url;
+			item.dataset.alt = img.alt;
+
+			// Clicking a thumbnail opens the original; the address itself is not shown.
+			const link = document.createElement('a');
+			link.className = 'thumb';
+			link.href = img.url;
+			link.target = '_blank';
+			link.rel = 'noopener noreferrer';
+			link.setAttribute('aria-label', img.alt ? `Open image: ${img.alt}` : 'Open image');
+
+			const pic = document.createElement('img');
+			pic.alt = img.alt;
+			pic.loading = 'lazy';
+			pic.decoding = 'async';
+			pic.referrerPolicy = 'no-referrer'; // do not tell the image host which page we came from
+
+			const size = document.createElement('p');
+			size.className = 'size';
+			const known = img.width > 0 && img.height > 0;
+			size.textContent = known ? `${img.width} × ${img.height}` : 'Loading…';
+
+			// The browser's own measurement is the most reliable one, so it wins once the image loads.
+			pic.addEventListener('load', () => {
+				if (pic.naturalWidth > 0 && pic.naturalHeight > 0) {
+					size.textContent = `${pic.naturalWidth} × ${pic.naturalHeight}`;
+				} else if (!known) {
+					size.textContent = 'Size unknown';
+				}
+			});
+			pic.addEventListener('error', () => {
+				item.classList.add('broken');
+				size.textContent = 'Could not load';
+			});
+			pic.src = img.url;
+
+			// A sibling of the link, not inside it: a button must not be nested in an anchor.
+			const remove = document.createElement('button');
+			remove.type = 'button';
+			remove.className = 'remove';
+			remove.textContent = '×';
+			remove.setAttribute('aria-label', img.alt ? `Remove image: ${img.alt}` : 'Remove image');
+			remove.addEventListener('click', () => {
+				const neighbour = item.nextElementSibling ?? item.previousElementSibling;
+				item.remove();
+				updateTitle();
+				// Keep keyboard focus in the list instead of dropping it to the page.
+				const target = neighbour?.querySelector<HTMLElement>('.remove') ?? resultsTitle;
+				target.focus();
+			});
+
+			link.append(pic);
+			item.append(link, size, remove);
+			list.append(item);
+		}
+		updateTitle();
+		results.hidden = false;
+
+		const notes = [`Crawled ${data.finalUrl}`];
+		if (data.blockedRequests > 0) notes.push(`${data.blockedRequests} request(s) to blocked addresses were refused.`);
+		if (images.length === 0) notes.push('No images matched.');
+		setStatus(notes.join(' '));
+	};
+
+	form.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		const url = input.value.trim();
+		if (!isHttpUrl(url)) {
+			showFieldError('Enter a full URL starting with http:// or https://');
+			input.focus();
+			return;
+		}
+		showFieldError('');
+
+		button.disabled = true;
+		button.textContent = 'Crawling…';
+		results.hidden = true;
+		setStatus('Crawling, this can take up to a minute…');
+
+		try {
+			const response = await fetch('/api/admin/crawl', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ url }),
+				signal: AbortSignal.timeout(90_000),
+			});
+			const data = await response.json().catch(() => null);
+			if (!response.ok) throw new Error(data?.error ?? `Request failed (${response.status}).`);
+			render(data as CrawlResponse);
+		} catch (err) {
+			const timedOut = err instanceof DOMException && err.name === 'TimeoutError';
+			setStatus(timedOut ? 'The crawl took too long and was stopped.' : err instanceof Error ? err.message : 'Crawl failed.', true);
+		} finally {
+			button.disabled = false;
+			button.textContent = 'Crawl';
+		}
+	});
+</script>
+
+<style>
+	.crawl {
+		max-width: 720px;
+	}
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	label {
+		font-size: 14px;
+		font-weight: 500;
+	}
+	.row {
+		display: flex;
+		gap: 12px;
+	}
+	input {
+		flex: 1;
+		min-width: 0;
+		height: 46px;
+		padding: 0 14px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		font: inherit;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	input:focus {
+		outline: 0;
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+	input[aria-invalid='true'] {
+		border-color: #c62828;
+	}
+	.btn {
+		flex: none;
+		min-width: 120px;
+		height: 46px;
+		padding: 0 24px;
+		border: 0;
+		border-radius: 999px;
+		background: var(--text);
+		color: #fff;
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+	}
+	.btn:hover:not(:disabled) {
+		background: #333;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+	.btn:active:not(:disabled) {
+		transform: scale(0.97);
+	}
+	.btn:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.error {
+		margin: 0;
+		min-height: 1.2em;
+		font-size: 13px;
+		color: #c62828;
+	}
+	.status {
+		margin: 4px 0 24px;
+		min-height: 1.4em;
+		font-size: 14px;
+		color: var(--muted);
+		overflow-wrap: anywhere;
+	}
+	.status.is-error {
+		color: #c62828;
+	}
+	.results-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 12px;
+		margin-bottom: 12px;
+	}
+	.results h2 {
+		margin: 0;
+		font-size: 18px;
+	}
+	.head-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.create {
+		height: 40px;
+		padding: 0 20px;
+		border: 1.5px solid var(--text);
+		border-radius: 999px;
+		background: transparent;
+		color: var(--text);
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, transform 0.1s;
+	}
+	.create:hover {
+		background: var(--text);
+		color: #fff;
+	}
+	.create:active {
+		transform: scale(0.97);
+	}
+	.create:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.create[hidden] {
+		display: none;
+	}
+	.create:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	/* The main action is filled; "Create album from these images" stays the quieter outline. */
+	.create.solid {
+		background: var(--text);
+		color: #fff;
+	}
+	.create.solid:hover:not(:disabled) {
+		background: #333;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+
+	/* Confirmation dialog, in the same style as the other admin dialogs. */
+	.dialog {
+		width: min(440px, calc(100vw - 32px));
+		padding: 28px;
+		border: 0;
+		border-radius: 12px;
+		color: var(--text);
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+		opacity: 0;
+		transform: translateY(16px) scale(0.96);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open] {
+		opacity: 1;
+		transform: none;
+	}
+	.dialog::backdrop {
+		background: rgba(0, 0, 0, 0);
+		transition:
+			background 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open]::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+	}
+	@starting-style {
+		.dialog[open] {
+			opacity: 0;
+			transform: translateY(16px) scale(0.96);
+		}
+		.dialog[open]::backdrop {
+			background: rgba(0, 0, 0, 0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.dialog,
+		.dialog::backdrop {
+			transition: none;
+		}
+	}
+	/* Used when one popup replaces another (see swap in the script). */
+	.dialog.instant,
+	.dialog.instant::backdrop {
+		transition: none;
+	}
+	.dialog h2 {
+		margin: 0 0 12px;
+		font-size: 20px;
+	}
+	.dialog-text {
+		margin: 0 0 10px;
+		font-size: 15px;
+		overflow-wrap: anywhere;
+	}
+	.dialog-note {
+		margin: 0 0 8px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.dialog-note[hidden] {
+		display: none;
+	}
+	.dialog-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 16px;
+	}
+	.dialog-actions [hidden] {
+		display: none;
+	}
+	.bar {
+		height: 10px;
+		margin: 4px 0 14px;
+		overflow: hidden;
+		border-radius: 999px;
+		background: var(--bg-soft);
+	}
+	.bar-fill {
+		width: 0;
+		height: 100%;
+		border-radius: 999px;
+		background: var(--text);
+		transition: width 0.2s ease;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.bar-fill {
+			transition: none;
+		}
+	}
+	.result-errors {
+		max-height: 140px;
+		margin: 4px 0 0;
+		padding-left: 18px;
+		overflow: auto;
+		font-size: 13px;
+		color: #c62828;
+		overflow-wrap: anywhere;
+	}
+	.result-errors[hidden] {
+		display: none;
+	}
+	.dialog-btn {
+		height: 44px;
+		padding: 0 24px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+	}
+	.dialog-btn:active {
+		transform: scale(0.97);
+	}
+	.dialog-btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.dialog-btn.primary {
+		border: 0;
+		background: var(--text);
+		color: #fff;
+	}
+	.dialog-btn.primary:hover {
+		background: #333;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+	.dialog-btn.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.dialog-btn.ghost:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	.note {
+		margin: 0 0 16px;
+		min-height: 1.2em;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	/* Cards are created by the script, so they need :global. */
+	.grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+		gap: 16px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.grid :global(.card) {
+		position: relative;
+		min-width: 0;
+	}
+	.grid :global(.remove) {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		display: grid;
+		place-items: center;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		border: 0;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.92);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+		color: #333;
+		font-size: 22px;
+		line-height: 1;
+		transition: background 0.15s, color 0.15s, transform 0.1s;
+	}
+	.grid :global(.remove:hover) {
+		background: #fff;
+		color: #c62828;
+	}
+	.grid :global(.remove:active) {
+		transform: scale(0.92);
+	}
+	.grid :global(.remove:focus-visible) {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.grid :global(.thumb) {
+		display: grid;
+		place-items: center;
+		aspect-ratio: 4 / 3;
+		border-radius: 8px;
+		overflow: hidden;
+		background: var(--bg-soft);
+	}
+	.grid :global(.thumb:focus-visible) {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	/* contain: show the whole image, whatever its proportions. */
+	.grid :global(.thumb img) {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+	}
+	.grid :global(.size) {
+		margin: 6px 0 0;
+		font-size: 13px;
+		color: var(--muted);
+		text-align: center;
+	}
+	.grid :global(.broken .thumb img) {
+		visibility: hidden;
+	}
+	@media (pointer: coarse) {
+		/* Bigger touch target on phones and tablets. */
+		.grid :global(.remove) {
+			width: 40px;
+			height: 40px;
+			font-size: 26px;
+		}
+	}
+	@media (max-width: 480px) {
+		.row {
+			flex-direction: column;
+		}
+		.btn {
+			width: 100%;
+		}
+	}
+</style>

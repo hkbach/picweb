@@ -1,0 +1,306 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { albums, albumTypeLabels } from '../../../data/albums';
+import { photoUrl } from '../../../data/photos';
+import { categories } from '../../../data/categories';
+
+// Category names for an album, in the album's own order. An id that no longer exists is skipped.
+const categoryName = new Map(categories.map((c) => [c.id, c.name]));
+const namesOf = (ids: string[]) => ids.map((id) => categoryName.get(id)).filter((name): name is string => Boolean(name));
+---
+
+<AdminLayout title="Albums" heading="Albums">
+	<div class="toolbar">
+		<p class="summary">{albums.length} album{albums.length === 1 ? '' : 's'}</p>
+		<a href="/admin/albums/new" class="btn">Create new album</a>
+	</div>
+
+	{
+		albums.length === 0 ? (
+			<p class="empty">No albums yet. Create the first one.</p>
+		) : (
+			<div class="table-wrap">
+				<table>
+					<caption class="visually-hidden">Albums and how each one was created</caption>
+					<thead>
+						<tr>
+							<th scope="col" class="col-cover">
+								<span class="visually-hidden">Cover</span>
+							</th>
+							<th scope="col">Title</th>
+							<th scope="col" class="col-cats">Categories</th>
+							<th scope="col" class="num">Photos</th>
+							<th scope="col">Type</th>
+							<th scope="col" class="col-actions">
+								<span class="visually-hidden">Actions</span>
+							</th>
+						</tr>
+					</thead>
+					<tbody>
+						{albums.map((album) => (
+							<tr>
+								<td class="col-cover">
+									<img
+										src={photoUrl(album.cover, 160)}
+										alt=""
+										width="56"
+										height="56"
+										loading="lazy"
+										decoding="async"
+									/>
+								</td>
+								<th scope="row" class="title">
+									{album.title}
+									{/* Phones drop the Categories column and show the names under the title instead. */}
+									<span class="cats-inline">{namesOf(album.categoryIds).join(', ')}</span>
+								</th>
+								<td class="col-cats">
+									{
+										namesOf(album.categoryIds).length === 0 ? (
+											<span class="none">No category</span>
+										) : (
+											<ul class="cats">
+												{namesOf(album.categoryIds).map((name) => (
+													<li class="cat">{name}</li>
+												))}
+											</ul>
+										)
+									}
+								</td>
+								<td class="num">{album.photos.length}</td>
+								<td>
+									<span class={`type type-${album.type}`}>{albumTypeLabels[album.type]}</span>
+								</td>
+								<td class="col-actions">
+									<a href={`/admin/albums/${album.id}/edit`} class="edit" aria-label={`Edit ${album.title}`}>
+										<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+											<path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor" />
+										</svg>
+										<span class="edit-text">Edit</span>
+									</a>
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+		)
+	}
+</AdminLayout>
+
+<style>
+	.toolbar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		max-width: 860px;
+		margin: -8px 0 16px;
+	}
+	.summary {
+		margin: 0;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		height: 40px;
+		padding: 0 20px;
+		border-radius: 999px;
+		background: var(--text);
+		color: #fff;
+		font-weight: 600;
+		transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+	}
+	.btn:hover {
+		background: #333;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+	.btn:active {
+		transform: scale(0.97);
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.empty {
+		color: var(--muted);
+	}
+
+	/* The table scrolls sideways inside this box on narrow screens instead of widening the page. */
+	.table-wrap {
+		max-width: 860px;
+		overflow-x: auto;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 14px;
+	}
+	th,
+	td {
+		padding: 10px 16px;
+		text-align: left;
+		vertical-align: middle;
+	}
+	thead th {
+		background: #fafafa;
+		border-bottom: 1px solid var(--border);
+		color: var(--muted);
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+	tbody tr + tr > * {
+		border-top: 1px solid var(--bg-soft);
+	}
+	tbody tr:hover {
+		background: #fafafa;
+	}
+	.col-cover {
+		width: 1%;
+		padding-right: 0;
+	}
+	.col-cover img {
+		display: block;
+		width: 56px;
+		height: 56px;
+		border-radius: 8px;
+		object-fit: cover;
+		background: var(--bg-soft);
+	}
+	.title {
+		font-weight: 600;
+	}
+	.num {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.cats {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.cat {
+		padding: 3px 10px;
+		border-radius: 999px;
+		background: var(--bg-soft);
+		color: var(--text);
+		font-size: 12px;
+		font-weight: 500;
+	}
+	.none {
+		color: var(--muted);
+	}
+	.cats-inline {
+		display: none;
+	}
+	.cats-inline:empty {
+		display: none;
+	}
+
+	.col-actions {
+		width: 1%;
+		text-align: right;
+		white-space: nowrap;
+	}
+	.edit {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 34px;
+		padding: 0 14px;
+		border: 1.5px solid var(--text);
+		border-radius: 999px;
+		color: var(--text);
+		font-size: 13px;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, transform 0.1s;
+	}
+	.edit:hover {
+		background: var(--text);
+		color: #fff;
+	}
+	.edit:active {
+		transform: scale(0.96);
+	}
+	.edit:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+
+	/* Phones: tighter cells and a smaller cover so the Type and Edit columns fit without sideways scrolling. */
+	@media (max-width: 600px) {
+		.col-cats {
+			display: none;
+		}
+		.cats-inline {
+			display: block;
+			margin-top: 2px;
+			font-size: 12px;
+			font-weight: 400;
+			color: var(--muted);
+		}
+		.cats-inline:empty {
+			display: none;
+		}
+		.edit {
+			width: 36px;
+			height: 36px;
+			padding: 0;
+			justify-content: center;
+		}
+		.edit-text {
+			display: none;
+		}
+		th,
+		td {
+			padding: 10px 10px;
+		}
+		.col-cover {
+			padding-left: 12px;
+		}
+		.col-cover img {
+			width: 40px;
+			height: 40px;
+			border-radius: 6px;
+		}
+		.type {
+			padding: 3px 8px;
+		}
+	}
+	/* The photo count is the least important column; it makes way for Type and Edit on small phones. */
+	@media (max-width: 480px) {
+		th.num,
+		td.num {
+			display: none;
+		}
+	}
+
+	/* The label carries the meaning; colour only reinforces it. */
+	.type {
+		display: inline-block;
+		padding: 3px 10px;
+		border-radius: 999px;
+		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.type-crawling {
+		background: #e8f0fe;
+		color: #1a4fb4;
+	}
+	.type-uploaded {
+		background: #e6f4ea;
+		color: #1b6b34;
+	}
+</style>

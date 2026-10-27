@@ -1,0 +1,340 @@
+---
+import AccountLayout from '../../layouts/AccountLayout.astro';
+import { user } from '../../data/account';
+---
+
+<AccountLayout title="Profile" heading="Profile">
+	<form class="profile" id="profile-form" novalidate>
+		<section class="avatar-block" aria-labelledby="avatar-title">
+			<h2 id="avatar-title">Avatar</h2>
+			<div class="avatar-row">
+				<span class="preview" id="avatar-preview" role="img" aria-label="Avatar preview">{user.firstName[0]}</span>
+				<div class="avatar-actions">
+					<div class="buttons">
+						<button type="button" class="btn secondary" id="choose-avatar">Upload photo</button>
+						<button type="button" class="btn ghost" id="remove-avatar" hidden>Remove</button>
+					</div>
+					<p class="hint">JPG, PNG or WebP, up to 5 MB. It is cropped to a square.</p>
+					<input id="avatar-file" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+				</div>
+			</div>
+		</section>
+
+		<section class="fields" aria-labelledby="details-title">
+			<h2 id="details-title">Details</h2>
+			<div class="name-row">
+				<div class="field">
+					<label for="first-name">First Name</label>
+					<input id="first-name" name="firstName" type="text" autocomplete="given-name" maxlength="50" value={user.firstName} required />
+				</div>
+				<div class="field">
+					<label for="last-name">Last Name</label>
+					<input id="last-name" name="lastName" type="text" autocomplete="family-name" maxlength="50" value={user.lastName} required />
+				</div>
+			</div>
+			<div class="field">
+				<label for="email">Email</label>
+				<input id="email" type="email" value={user.email} disabled />
+			</div>
+		</section>
+
+		<section class="fields" aria-labelledby="password-title">
+			<h2 id="password-title">Password</h2>
+			<p class="hint">Leave these blank to keep your current password.</p>
+			<div class="name-row">
+				<div class="field">
+					<label for="new-password">New password</label>
+					<input id="new-password" name="newPassword" type="password" autocomplete="new-password" minlength="8" />
+				</div>
+				<div class="field">
+					<label for="confirm-password">Confirm new password</label>
+					<input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" />
+				</div>
+			</div>
+		</section>
+
+		<div class="footer">
+			<button type="submit" class="btn primary">Save changes</button>
+			<p class="status" id="profile-status" role="status"></p>
+		</div>
+	</form>
+</AccountLayout>
+
+<script>
+	import { readProfile, writeProfile, applyProfile } from '../../scripts/profile-store';
+	import { changePassword } from '../../scripts/auth-api';
+
+
+	const MAX_FILE = 5 * 1024 * 1024;
+	const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+
+	const form = document.querySelector<HTMLFormElement>('#profile-form')!;
+	const first = form.querySelector<HTMLInputElement>('#first-name')!;
+	const last = form.querySelector<HTMLInputElement>('#last-name')!;
+	const file = form.querySelector<HTMLInputElement>('#avatar-file')!;
+	const choose = form.querySelector<HTMLButtonElement>('#choose-avatar')!;
+	const remove = form.querySelector<HTMLButtonElement>('#remove-avatar')!;
+	const preview = form.querySelector<HTMLElement>('#avatar-preview')!;
+	const status = form.querySelector<HTMLElement>('#profile-status')!;
+	const newPw = form.querySelector<HTMLInputElement>('#new-password')!;
+	const confirmPw = form.querySelector<HTMLInputElement>('#confirm-password')!;
+	const saveButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+
+	// The avatar chosen in this form; it only becomes the saved one on "Save changes".
+	let avatar: string | null = null;
+
+	const say = (message: string, isError = false) => {
+		status.textContent = message;
+		status.classList.toggle('error', isError);
+	};
+
+	const renderPreview = () => {
+		if (avatar) {
+			preview.style.backgroundImage = `url("${avatar}")`;
+			preview.textContent = '';
+		} else {
+			preview.style.backgroundImage = '';
+			preview.textContent = (first.value.trim()[0] ?? '?').toUpperCase();
+		}
+		remove.hidden = !avatar;
+	};
+
+	// Centre-crop to a square and shrink, which keeps the stored image small.
+	const toAvatar = async (image: File, size = 256) => {
+		const bitmap = await createImageBitmap(image);
+		const side = Math.min(bitmap.width, bitmap.height);
+		const canvas = document.createElement('canvas');
+		canvas.width = canvas.height = size;
+		const ctx = canvas.getContext('2d')!;
+		ctx.fillStyle = '#fff';
+		ctx.fillRect(0, 0, size, size);
+		ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+		bitmap.close();
+		return canvas.toDataURL('image/jpeg', 0.85);
+	};
+
+	const saved = readProfile();
+	if (saved) {
+		first.value = saved.firstName;
+		last.value = saved.lastName;
+		avatar = saved.avatar;
+	}
+	renderPreview();
+
+	first.addEventListener('input', renderPreview);
+	choose.addEventListener('click', () => file.click());
+	remove.addEventListener('click', () => {
+		avatar = null;
+		renderPreview();
+		// The Remove button has just hidden itself; keep keyboard focus next to it.
+		choose.focus();
+		say('Avatar removed. Click Save changes to apply.');
+	});
+
+	file.addEventListener('change', async () => {
+		const image = file.files?.[0];
+		file.value = ''; // allow picking the same file again later
+		if (!image) return;
+		if (!TYPES.includes(image.type)) return say('Please choose a JPG, PNG or WebP image.', true);
+		if (image.size > MAX_FILE) return say('The image is larger than 5 MB.', true);
+		try {
+			avatar = await toAvatar(image);
+			renderPreview();
+			say('Photo ready. Click Save changes to apply.');
+		} catch {
+			say('That image could not be read. Try a different file.', true);
+		}
+	});
+
+	const invalid = (input: HTMLInputElement, message: string) => {
+		say(message, true);
+		input.focus();
+	};
+
+	form.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		const firstName = first.value.trim();
+		const lastName = last.value.trim();
+		if (!firstName) return invalid(first, 'First Name is required.');
+		if (!lastName) return invalid(last, 'Last Name is required.');
+
+		// Password fields are optional, but if any is filled all of them must be valid.
+		// Nothing is saved while the form has an error.
+		const wantsPassword = Boolean(newPw.value || confirmPw.value);
+		if (wantsPassword) {
+			if (newPw.value.length < 8) return invalid(newPw, 'The new password must be at least 8 characters.');
+			if (confirmPw.value !== newPw.value) return invalid(confirmPw, 'The new passwords do not match.');
+		}
+
+		const profile = { firstName, lastName, avatar };
+		if (!writeProfile(profile)) return say('Could not save: browser storage is unavailable.', true);
+		applyProfile(profile);
+
+		if (!wantsPassword) return say('Profile saved.');
+
+		saveButton.disabled = true;
+		const result = await changePassword(newPw.value);
+		saveButton.disabled = false;
+		// Never keep passwords in the form after the attempt.
+		newPw.value = confirmPw.value = '';
+
+		if (result.ok) return say('Profile and password saved.');
+		if (result.reason === 'not-configured') {
+			return say('Profile saved. The password was not changed: no account service is connected yet.', true);
+		}
+		say('Profile saved, but the password could not be changed. Please try again.', true);
+	});
+</script>
+
+<style>
+	.profile {
+		display: flex;
+		flex-direction: column;
+		gap: 32px;
+		max-width: 560px;
+	}
+	h2 {
+		margin: 0 0 16px;
+		font-size: 18px;
+	}
+	.avatar-row {
+		display: flex;
+		align-items: center;
+		gap: 20px;
+	}
+	.preview {
+		display: grid;
+		place-items: center;
+		flex: none;
+		width: 96px;
+		height: 96px;
+		border-radius: 50%;
+		background: var(--text) center / cover no-repeat;
+		color: #fff;
+		font-size: 40px;
+		font-weight: 600;
+	}
+	.buttons {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.hint {
+		margin: 10px 0 0;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.fields {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+	.fields h2 {
+		margin-bottom: 0;
+	}
+	.fields .hint {
+		margin: -8px 0 0;
+	}
+	.primary:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.name-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 16px;
+	}
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		min-width: 0;
+	}
+	label {
+		font-size: 14px;
+		font-weight: 500;
+	}
+	input[type='text'],
+	input[type='email'],
+	input[type='password'] {
+		height: 44px;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		font: inherit;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	input:focus {
+		outline: 0;
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+	input:disabled {
+		background: var(--bg-soft);
+		color: var(--muted);
+	}
+	.footer {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 16px;
+	}
+	.status {
+		margin: 0;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.status.error {
+		color: #c62828;
+	}
+	.btn {
+		height: 44px;
+		padding: 0 24px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+	}
+	.btn:active {
+		transform: scale(0.97);
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.primary {
+		border: 0;
+		background: var(--text);
+		color: #fff;
+	}
+	.primary:hover {
+		background: #333;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+	.secondary {
+		border: 1.5px solid var(--text);
+		background: transparent;
+		color: var(--text);
+	}
+	.secondary:hover {
+		background: var(--text);
+		color: #fff;
+	}
+	.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.ghost:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	@media (max-width: 480px) {
+		.name-row {
+			grid-template-columns: 1fr;
+		}
+		.avatar-row {
+			align-items: flex-start;
+		}
+	}
+</style>

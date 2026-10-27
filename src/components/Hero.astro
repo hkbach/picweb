@@ -1,0 +1,69 @@
+---
+const heroImage = 'https://picsum.photos/id/1018/2000/900';
+---
+
+<section class="hero" style={`--hero: url(${heroImage})`}>
+	<div class="container inner">
+		<div class="copy">
+			<h1>Picweb</h1>
+			<p>The internet's source for visuals.<br />Powered by creators everywhere.</p>
+			<form class="search" role="search" action="/" method="get">
+				<label class="visually-hidden" for="q-hero">Search photos</label>
+				<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+					<path d="M10 2a8 8 0 105.3 14l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z" fill="currentColor" />
+				</svg>
+				<input id="q-hero" name="q" type="search" placeholder="Search high-resolution images" />
+			</form>
+		</div>
+	</div>
+</section>
+
+<style>
+	.hero {
+		position: relative;
+		color: #fff;
+		background:
+			linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)),
+			var(--hero) center / cover no-repeat;
+		margin-top: -64px;
+		padding-top: 64px;
+	}
+	.inner {
+		min-height: 440px;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+	}
+	.copy {
+		max-width: 680px;
+	}
+	h1 {
+		margin: 0 0 12px;
+		font-size: clamp(36px, 6vw, 56px);
+		line-height: 1.1;
+	}
+	p {
+		margin: 0 0 24px;
+		font-size: 18px;
+		line-height: 1.5;
+	}
+	.search {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		height: 56px;
+		padding: 0 18px;
+		border-radius: 28px;
+		background: #fff;
+		color: var(--muted);
+	}
+	.search input {
+		flex: 1;
+		border: 0;
+		outline: 0;
+		background: transparent;
+		font: inherit;
+		font-size: 16px;
+		color: var(--text);
+	}
+</style>

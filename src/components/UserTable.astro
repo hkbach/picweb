@@ -1,0 +1,1108 @@
+<section class="users" aria-label="Users">
+	<div class="toolbar">
+		<label class="search">
+			<span class="visually-hidden">Search users by name or email</span>
+			<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M10 2a8 8 0 105.3 14l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z" fill="currentColor" />
+			</svg>
+			<input id="user-search" type="search" placeholder="Search name or email" autocomplete="off" />
+		</label>
+		<label class="filter">
+			<span class="visually-hidden">Filter by status</span>
+			<select id="user-status">
+				<option value="all">All statuses</option>
+				<option value="active">Active</option>
+				<option value="deactivated">Deactivated</option>
+			</select>
+		</label>
+		<button type="button" class="btn primary" id="add-user">Add user</button>
+	</div>
+
+	<p class="status" id="users-status" role="status"></p>
+
+	<div class="table-wrap">
+		<table>
+			<caption class="visually-hidden">Users</caption>
+			<thead>
+				<tr>
+					<th scope="col" aria-sort="none" data-sort-th="name">
+						<button type="button" class="sort" data-sort="name">User</button>
+					</th>
+					<th scope="col" class="col-status">Status</th>
+					<th scope="col" class="col-date" aria-sort="descending" data-sort-th="registered">
+						<button type="button" class="sort" data-sort="registered">Registered</button>
+					</th>
+					<th scope="col" class="col-actions"><span class="visually-hidden">Actions</span></th>
+				</tr>
+			</thead>
+			<tbody id="user-rows"></tbody>
+		</table>
+		<p class="empty" id="users-empty" hidden>No users match your search.</p>
+	</div>
+
+	<div class="pager">
+		<p class="range" id="users-range" aria-live="polite"></p>
+		<div class="pager-buttons">
+			<button type="button" class="btn ghost" id="page-prev">Previous</button>
+			<span class="page-label" id="page-label"></span>
+			<button type="button" class="btn ghost" id="page-next">Next</button>
+		</div>
+	</div>
+
+	<div class="changes" id="changes" role="region" aria-label="Unsaved changes" hidden>
+		<p class="changes-text"><strong id="change-count"></strong> <span id="change-detail"></span></p>
+		<div class="changes-actions">
+			<button type="button" class="btn ghost" id="discard">Discard</button>
+			<button type="button" class="btn primary" id="save">Save changes</button>
+		</div>
+	</div>
+</section>
+
+<dialog id="user-dialog" class="dialog" aria-labelledby="user-dialog-title">
+	<form id="user-form" novalidate>
+		<h2 id="user-dialog-title"></h2>
+		<div class="name-row">
+			<label class="field">
+				<span class="label">First name</span>
+				<input id="uf-first" type="text" maxlength="50" autocomplete="off" />
+			</label>
+			<label class="field">
+				<span class="label">Last name</span>
+				<input id="uf-last" type="text" maxlength="50" autocomplete="off" />
+			</label>
+		</div>
+		<label class="field">
+			<span class="label">Email</span>
+			<input id="uf-email" type="email" maxlength="254" autocomplete="off" spellcheck="false" />
+		</label>
+		<label class="check">
+			<input id="uf-active" type="checkbox" checked />
+			<span>Active <span class="opt">(can sign in)</span></span>
+		</label>
+
+		<!-- Shown when editing only. The passwords stay in the page's memory until saved. -->
+		<fieldset class="pw" id="uf-pw-box">
+			<legend>Password</legend>
+			<p class="pw-hint">Leave both fields empty to keep the current password.</p>
+			<div class="name-row">
+				<label class="field">
+					<span class="label">New password</span>
+					<input id="uf-pw" type="password" maxlength="128" autocomplete="new-password" spellcheck="false" />
+				</label>
+				<label class="field">
+					<span class="label">Confirm password</span>
+					<input id="uf-pw2" type="password" maxlength="128" autocomplete="new-password" spellcheck="false" />
+				</label>
+			</div>
+			<label class="check">
+				<input id="uf-pw-show" type="checkbox" />
+				<span>Show passwords</span>
+			</label>
+			<label class="check">
+				<input id="uf-pw-must" type="checkbox" checked />
+				<span>Require the user to change it at next sign-in</span>
+			</label>
+			<p class="pw-staged" id="uf-pw-staged" hidden>
+				A new password is already staged for this user. Enter another to replace it, or{' '}
+				<button type="button" class="linkbtn" id="uf-pw-clear">remove it</button>.
+			</p>
+		</fieldset>
+
+		<p class="form-error" id="uf-error" role="alert"></p>
+		<div class="dialog-actions">
+			<button type="button" class="btn ghost" id="uf-cancel">Cancel</button>
+			<button type="submit" class="btn primary" id="uf-submit">Save</button>
+		</div>
+	</form>
+</dialog>
+
+<dialog id="delete-dialog" class="dialog" aria-labelledby="delete-title">
+	<h2 id="delete-title">Delete user?</h2>
+	<p class="delete-text" id="delete-text"></p>
+	<div class="dialog-actions">
+		<button type="button" class="btn ghost" id="delete-cancel" autofocus>Cancel</button>
+		<button type="button" class="btn danger" id="delete-confirm">Delete</button>
+	</div>
+</dialog>
+
+<template id="user-row">
+	<tr>
+		<td class="user-cell">
+			<span class="avatar" aria-hidden="true"></span>
+			<span class="who">
+				<span class="name"></span>
+				<span class="email"></span>
+				<span class="pending" hidden>Password change pending</span>
+				<!-- Phones drop the Status column and show the status here instead. -->
+				<span class="badge badge-inline"></span>
+			</span>
+		</td>
+		<td class="col-status"><span class="badge"></span></td>
+		<td class="col-date"></td>
+		<td class="col-actions">
+			<div class="actions">
+				<button type="button" class="act edit">
+					<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+						<path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor" />
+					</svg>
+					<span class="act-text">Edit</span>
+				</button>
+				<button type="button" class="act toggle">
+					<svg class="i-ban" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+						<path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2a8 8 0 016.32 12.9L7.1 5.68A7.96 7.96 0 0112 4zM5.68 7.1L16.9 18.32A8 8 0 015.68 7.1z" fill="currentColor" />
+					</svg>
+					<svg class="i-check" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+						<path d="M12 2a10 10 0 100 20 10 10 0 000-20zm-1.2 14.4L6.6 12.2l1.4-1.4 2.8 2.8 5.2-5.2 1.4 1.4-6.6 6.6z" fill="currentColor" />
+					</svg>
+					<span class="act-text"></span>
+				</button>
+				<button type="button" class="act del">
+					<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+						<path d="M6 19a2 2 0 002 2h8a2 2 0 002-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor" />
+					</svg>
+					<span class="act-text">Delete</span>
+				</button>
+			</div>
+		</td>
+	</tr>
+</template>
+
+<script>
+	import { saveUserChanges } from '../scripts/users-api';
+
+	interface UserRow {
+		id: string;
+		firstName: string;
+		lastName: string;
+		email: string;
+		status: 'active' | 'deactivated';
+		registeredAt: string;
+	}
+
+	const PAGE_SIZE = 10;
+	const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+	const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
+	const searchInput = $<HTMLInputElement>('#user-search');
+	const statusSelect = $<HTMLSelectElement>('#user-status');
+	const addButton = $<HTMLButtonElement>('#add-user');
+	const statusLine = $<HTMLElement>('#users-status');
+	const rowsEl = $<HTMLElement>('#user-rows');
+	const emptyEl = $<HTMLElement>('#users-empty');
+	const rangeEl = $<HTMLElement>('#users-range');
+	const pageLabel = $<HTMLElement>('#page-label');
+	const prevButton = $<HTMLButtonElement>('#page-prev');
+	const nextButton = $<HTMLButtonElement>('#page-next');
+	const changesBar = $<HTMLElement>('#changes');
+	const changeCount = $<HTMLElement>('#change-count');
+	const changeDetail = $<HTMLElement>('#change-detail');
+	const saveButton = $<HTMLButtonElement>('#save');
+	const discardButton = $<HTMLButtonElement>('#discard');
+	const template = $<HTMLTemplateElement>('#user-row');
+
+	const userDialog = $<HTMLDialogElement>('#user-dialog');
+	const userForm = $<HTMLFormElement>('#user-form');
+	const dialogTitle = $<HTMLElement>('#user-dialog-title');
+	const firstInput = $<HTMLInputElement>('#uf-first');
+	const lastInput = $<HTMLInputElement>('#uf-last');
+	const emailInput = $<HTMLInputElement>('#uf-email');
+	const activeInput = $<HTMLInputElement>('#uf-active');
+	const formError = $<HTMLElement>('#uf-error');
+	const deleteDialog = $<HTMLDialogElement>('#delete-dialog');
+	const deleteText = $<HTMLElement>('#delete-text');
+	const pwBox = $<HTMLElement>('#uf-pw-box');
+	const pwInput = $<HTMLInputElement>('#uf-pw');
+	const pw2Input = $<HTMLInputElement>('#uf-pw2');
+	const pwShow = $<HTMLInputElement>('#uf-pw-show');
+	const pwMust = $<HTMLInputElement>('#uf-pw-must');
+	const pwStaged = $<HTMLElement>('#uf-pw-staged');
+
+	const data = JSON.parse($('#users-data').textContent ?? '{}') as { snapshot: string; users: UserRow[] };
+	let initial: UserRow[] = data.users;
+	let users: UserRow[] = initial.map((u) => ({ ...u }));
+	let newId = 0;
+
+	// Passwords an administrator has typed for users, waiting to be saved. They live only here, in
+	// memory: never in `users`, the embedded data, the Summary event, the DOM text or storage.
+	const resets = new Map<string, { password: string; mustChange: boolean }>();
+	const MIN_PASSWORD = 8;
+
+	const view = { query: '', status: 'all', sortKey: 'registered' as 'name' | 'registered', sortDir: 'desc' as 'asc' | 'desc', page: 1 };
+	let editingId: string | null = null;
+	let deletingId: string | null = null;
+
+	const dateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+	const toMs = (iso: string) => {
+		const [y, m, d] = iso.split('-').map(Number);
+		return Date.UTC(y, m - 1, d);
+	};
+	const fullName = (u: UserRow) => `${u.firstName} ${u.lastName}`;
+	const initials = (u: UserRow) => `${u.firstName[0] ?? ''}${u.lastName[0] ?? ''}`.toUpperCase();
+	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+	const say = (message: string, isError = false) => {
+		statusLine.textContent = message;
+		statusLine.classList.toggle('is-error', isError);
+	};
+
+	// ---- what is staged compared with what was loaded
+	const changes = () => {
+		const before = new Map(initial.map((u) => [u.id, u]));
+		const kept = new Set<string>();
+		const created: UserRow[] = [];
+		const updated: UserRow[] = [];
+		for (const u of users) {
+			kept.add(u.id);
+			const old = before.get(u.id);
+			if (!old) created.push(u);
+			else if (old.firstName !== u.firstName || old.lastName !== u.lastName || old.email !== u.email || old.status !== u.status) updated.push(u);
+		}
+		const deleted = initial.filter((u) => !kept.has(u.id)).map((u) => u.id);
+		const passwordResets = [...resets]
+			.filter(([id]) => kept.has(id))
+			.map(([id, r]) => ({ id, password: r.password, mustChangeAtNextSignIn: r.mustChange }));
+		return { created, updated, deleted, passwordResets };
+	};
+
+	// ---- filtering, sorting, paging
+	const visibleUsers = () => {
+		const q = view.query.trim().toLowerCase();
+		const list = users.filter((u) => (view.status === 'all' || u.status === view.status) && (!q || `${fullName(u)} ${u.email}`.toLowerCase().includes(q)));
+		const dir = view.sortDir === 'asc' ? 1 : -1;
+		// Users added on this page ("new-3") count as the latest of all, so they sort first by date.
+		const order = (id: string) => Number(id.replace(/\D/g, '')) + (id.startsWith('new-') ? 1e9 : 0);
+		list.sort((a, b) => {
+			const byKey =
+				view.sortKey === 'name'
+					? `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)
+					: toMs(a.registeredAt) - toMs(b.registeredAt);
+			// Ties (many people register on the same day) keep a stable order by id.
+			return byKey !== 0 ? byKey * dir : (order(a.id) - order(b.id)) * dir;
+		});
+		return list;
+	};
+
+	const focusRow = (id: string, control: 'edit' | 'toggle' | 'del', fallback: HTMLElement) => {
+		const target = rowsEl.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"] .${control}`);
+		(target ?? fallback).focus();
+	};
+
+	const render = () => {
+		const list = visibleUsers();
+		const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+		view.page = Math.min(Math.max(view.page, 1), pages);
+		const start = (view.page - 1) * PAGE_SIZE;
+		const shown = list.slice(start, start + PAGE_SIZE);
+
+		rowsEl.replaceChildren();
+		for (const user of shown) {
+			const row = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+			const name = fullName(user);
+			const off = user.status === 'deactivated';
+			row.dataset.id = user.id;
+			row.classList.toggle('is-off', off);
+
+			row.querySelector<HTMLElement>('.avatar')!.textContent = initials(user);
+			row.querySelector<HTMLElement>('.name')!.textContent = name;
+			// On a narrow screen a long address may wrap; offer the break right after "@" so it never splits mid-word.
+			const at = user.email.indexOf('@') + 1;
+			row.querySelector<HTMLElement>('.email')!.replaceChildren(
+				document.createTextNode(user.email.slice(0, at)),
+				document.createElement('wbr'),
+				document.createTextNode(user.email.slice(at)),
+			);
+			for (const badge of row.querySelectorAll<HTMLElement>('.badge')) {
+				badge.textContent = off ? 'Deactivated' : 'Active';
+				badge.classList.add(off ? 'badge-off' : 'badge-on');
+			}
+			row.querySelector<HTMLElement>('.pending')!.hidden = !resets.has(user.id);
+			row.querySelector<HTMLElement>('.col-date')!.textContent = dateFmt.format(new Date(toMs(user.registeredAt)));
+
+			const edit = row.querySelector<HTMLButtonElement>('.edit')!;
+			const toggle = row.querySelector<HTMLButtonElement>('.toggle')!;
+			const del = row.querySelector<HTMLButtonElement>('.del')!;
+			edit.setAttribute('aria-label', `Edit ${name}`);
+			toggle.setAttribute('aria-label', `${off ? 'Activate' : 'Deactivate'} ${name}`);
+			toggle.dataset.state = user.status;
+			toggle.querySelector<HTMLElement>('.act-text')!.textContent = off ? 'Activate' : 'Deactivate';
+			del.setAttribute('aria-label', `Delete ${name}`);
+
+			edit.addEventListener('click', () => openForm(user));
+			toggle.addEventListener('click', () => {
+				user.status = off ? 'active' : 'deactivated';
+				say(`${name} ${off ? 'activated' : 'deactivated'}. Click Save changes to apply.`);
+				commit();
+				focusRow(user.id, 'toggle', statusSelect);
+			});
+			del.addEventListener('click', () => {
+				deletingId = user.id;
+				deleteText.textContent = `${name} (${user.email}) will be removed from the list. You can still undo this with Discard until you save.`;
+				deleteDialog.showModal();
+			});
+
+			rowsEl.append(row);
+		}
+
+		emptyEl.hidden = list.length > 0;
+		emptyEl.textContent = users.length === 0 ? 'There are no users.' : 'No users match your search.';
+		rangeEl.textContent = list.length === 0 ? '' : `Showing ${start + 1}–${start + shown.length} of ${list.length}`;
+		pageLabel.textContent = `Page ${view.page} of ${pages}`;
+		prevButton.disabled = view.page <= 1;
+		nextButton.disabled = view.page >= pages;
+
+		for (const th of document.querySelectorAll<HTMLElement>('[data-sort-th]')) {
+			const active = th.dataset.sortTh === view.sortKey;
+			th.setAttribute('aria-sort', active ? (view.sortDir === 'asc' ? 'ascending' : 'descending') : 'none');
+		}
+
+		const c = changes();
+		// One person counts once, even if they were edited and also given a new password.
+		const touched = new Set([...c.created.map((u) => u.id), ...c.updated.map((u) => u.id), ...c.deleted, ...c.passwordResets.map((r) => r.id)]);
+		const total = touched.size;
+		changesBar.hidden = total === 0;
+		changeCount.textContent = plural(total, 'unsaved change');
+		changeDetail.textContent = [
+			c.created.length ? `${c.created.length} added` : '',
+			c.updated.length ? `${c.updated.length} edited` : '',
+			c.deleted.length ? `${c.deleted.length} deleted` : '',
+			c.passwordResets.length ? `${plural(c.passwordResets.length, 'password reset')}` : '',
+		]
+			.filter(Boolean)
+			.join(', ');
+	};
+
+	// Redraw, and tell the Summary tab so its figures and chart always match this table.
+	const commit = () => {
+		render();
+		document.dispatchEvent(new CustomEvent('users:changed', { detail: { users } }));
+	};
+
+	// ---- toolbar and table
+	searchInput.addEventListener('input', () => {
+		view.query = searchInput.value;
+		view.page = 1;
+		render();
+	});
+	statusSelect.addEventListener('change', () => {
+		view.status = statusSelect.value;
+		view.page = 1;
+		render();
+	});
+	document.querySelectorAll<HTMLButtonElement>('[data-sort]').forEach((button) =>
+		button.addEventListener('click', () => {
+			const key = button.dataset.sort as 'name' | 'registered';
+			if (view.sortKey === key) view.sortDir = view.sortDir === 'asc' ? 'desc' : 'asc';
+			else {
+				view.sortKey = key;
+				view.sortDir = key === 'name' ? 'asc' : 'desc';
+			}
+			view.page = 1;
+			render();
+		}),
+	);
+	prevButton.addEventListener('click', () => {
+		view.page--;
+		render();
+	});
+	nextButton.addEventListener('click', () => {
+		view.page++;
+		render();
+	});
+
+	// ---- add and edit
+	const openForm = (user?: UserRow) => {
+		editingId = user?.id ?? null;
+		dialogTitle.textContent = user ? 'Edit user' : 'Add user';
+		firstInput.value = user?.firstName ?? '';
+		lastInput.value = user?.lastName ?? '';
+		emailInput.value = user?.email ?? '';
+		activeInput.checked = user ? user.status === 'active' : true;
+		formError.textContent = '';
+		for (const input of [firstInput, lastInput, emailInput, pwInput, pw2Input]) input.removeAttribute('aria-invalid');
+
+		// Passwords can be set when editing, not when adding (a new user is invited to choose their own).
+		pwBox.hidden = !user;
+		pwInput.value = '';
+		pw2Input.value = '';
+		pwShow.checked = false;
+		showPasswords(false);
+		pwMust.checked = true;
+		pwStaged.hidden = !(user && resets.has(user.id));
+
+		userDialog.showModal();
+		firstInput.focus();
+	};
+
+	const showPasswords = (visible: boolean) => {
+		pwInput.type = visible ? 'text' : 'password';
+		pw2Input.type = visible ? 'text' : 'password';
+	};
+	pwShow.addEventListener('change', () => showPasswords(pwShow.checked));
+	$('#uf-pw-clear').addEventListener('click', () => {
+		if (!editingId) return;
+		resets.delete(editingId);
+		pwStaged.hidden = true;
+		say('Staged password removed.');
+		commit();
+		pwInput.focus();
+	});
+	// Whatever way the dialog closes, the typed passwords are wiped from the fields.
+	userDialog.addEventListener('close', () => {
+		pwInput.value = '';
+		pw2Input.value = '';
+		showPasswords(false);
+	});
+
+	const fail = (input: HTMLInputElement, message: string) => {
+		formError.textContent = message;
+		input.setAttribute('aria-invalid', 'true');
+		input.focus();
+	};
+
+	addButton.addEventListener('click', () => openForm());
+	$('#uf-cancel').addEventListener('click', () => userDialog.close());
+
+	userForm.addEventListener('submit', (e) => {
+		e.preventDefault();
+		const firstName = firstInput.value.trim();
+		const lastName = lastInput.value.trim();
+		const email = emailInput.value.trim();
+		for (const input of [firstInput, lastInput, emailInput, pwInput, pw2Input]) input.removeAttribute('aria-invalid');
+
+		if (!firstName) return fail(firstInput, 'Enter a first name.');
+		if (!lastName) return fail(lastInput, 'Enter a last name.');
+		if (!EMAIL.test(email)) return fail(emailInput, 'Enter a valid email address.');
+		if (users.some((u) => u.id !== editingId && u.email.toLowerCase() === email.toLowerCase())) {
+			return fail(emailInput, 'Another user already has this email.');
+		}
+
+		// A password is optional; if either field is filled, both must agree. Spaces are kept as typed.
+		let newPassword: string | null = null;
+		if (editingId && (pwInput.value || pw2Input.value)) {
+			if (pwInput.value.length < MIN_PASSWORD) return fail(pwInput, `The new password must be at least ${MIN_PASSWORD} characters.`);
+			if (pwInput.value !== pw2Input.value) return fail(pw2Input, 'The passwords do not match.');
+			newPassword = pwInput.value;
+		}
+		const status = activeInput.checked ? 'active' : 'deactivated';
+
+		let focusId: string;
+		if (editingId) {
+			const user = users.find((u) => u.id === editingId)!;
+			Object.assign(user, { firstName, lastName, email, status });
+			if (newPassword !== null) resets.set(user.id, { password: newPassword, mustChange: pwMust.checked });
+			focusId = user.id;
+			say(`${firstName} ${lastName} updated${newPassword !== null ? ', with a new password' : ''}. Click Save changes to apply.`);
+		} else {
+			const user: UserRow = { id: `new-${++newId}`, firstName, lastName, email, status, registeredAt: data.snapshot };
+			users.push(user);
+			focusId = user.id;
+			// Show the new user: newest first, with no search or filter hiding it.
+			Object.assign(view, { query: '', status: 'all', sortKey: 'registered', sortDir: 'desc', page: 1 });
+			searchInput.value = '';
+			statusSelect.value = 'all';
+			say(`${firstName} ${lastName} added. Click Save changes to apply.`);
+		}
+		userDialog.close();
+		commit();
+		focusRow(focusId, 'edit', addButton);
+	});
+
+	// ---- delete
+	$('#delete-cancel').addEventListener('click', () => deleteDialog.close());
+	$('#delete-confirm').addEventListener('click', () => {
+		const user = users.find((u) => u.id === deletingId);
+		deleteDialog.close();
+		if (!user) return;
+		resets.delete(user.id); // nothing to reset for someone who is being deleted
+		users = users.filter((u) => u.id !== user.id);
+		say(`${fullName(user)} deleted. Use Discard to bring them back.`);
+		commit();
+		(rowsEl.querySelector<HTMLElement>('.edit') ?? addButton).focus();
+	});
+
+	// Clicking the dim area around a dialog closes it.
+	for (const dialog of [userDialog, deleteDialog]) {
+		dialog.addEventListener('click', (e) => {
+			if (e.target === dialog) dialog.close();
+		});
+	}
+
+	// ---- save or discard everything staged
+	discardButton.addEventListener('click', () => {
+		users = initial.map((u) => ({ ...u }));
+		resets.clear();
+		say('Changes discarded.');
+		commit();
+		addButton.focus();
+	});
+
+	saveButton.addEventListener('click', async () => {
+		const c = changes();
+		const plain = ({ id, firstName, lastName, email, status }: UserRow) => ({ id, firstName, lastName, email, status });
+		saveButton.disabled = true;
+		say('Saving…');
+		const result = await saveUserChanges({
+			created: c.created.map(plain),
+			updated: c.updated.map(plain),
+			deleted: c.deleted,
+			passwordResets: c.passwordResets,
+		});
+		saveButton.disabled = false;
+
+		if (result.ok) {
+			// What was just saved becomes the new starting point, and the typed passwords are dropped.
+			initial = users.map((u) => ({ ...u }));
+			resets.clear();
+			commit();
+			return say('Changes saved.');
+		}
+		if (result.reason === 'not-configured') {
+			return say('Not saved: no user service is connected yet. Your changes stay on this page until you leave it.', true);
+		}
+		say('The changes could not be saved. Please try again.', true);
+	});
+
+	render();
+</script>
+
+<style>
+	.toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 12px;
+		margin-bottom: 8px;
+	}
+	.search {
+		flex: 1 1 240px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		height: 44px;
+		padding: 0 14px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		color: var(--muted);
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	.search:focus-within {
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+	.search input {
+		flex: 1;
+		min-width: 0;
+		border: 0;
+		outline: 0;
+		background: transparent;
+		font: inherit;
+		color: var(--text);
+	}
+	.filter select {
+		height: 44px;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		background: #fff;
+		font: inherit;
+		color: var(--text);
+	}
+	.filter select:focus-visible {
+		outline: 0;
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+
+	.status {
+		min-height: 1.4em;
+		margin: 0 0 8px;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.status.is-error {
+		color: #c62828;
+	}
+
+	.table-wrap {
+		overflow-x: auto;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 14px;
+	}
+	th,
+	td {
+		padding: 10px 16px;
+		text-align: left;
+		vertical-align: middle;
+	}
+	thead th {
+		background: #fafafa;
+		border-bottom: 1px solid var(--border);
+		color: var(--muted);
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+	.sort {
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		font: inherit;
+		letter-spacing: inherit;
+		text-transform: inherit;
+	}
+	.sort:hover {
+		color: var(--text);
+	}
+	.sort:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 3px;
+		border-radius: 4px;
+	}
+	th[aria-sort='ascending'] .sort::after {
+		content: ' ↑';
+	}
+	th[aria-sort='descending'] .sort::after {
+		content: ' ↓';
+	}
+	th[aria-sort='ascending'] .sort,
+	th[aria-sort='descending'] .sort {
+		color: var(--text);
+	}
+	tbody :global(tr) + :global(tr) > :global(*) {
+		border-top: 1px solid var(--bg-soft);
+	}
+	tbody :global(tr:hover) {
+		background: #fafafa;
+	}
+
+	/* Rows are created by the script from the template, so their parts need :global. */
+	tbody :global(.user-cell) {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		min-width: 220px;
+	}
+	tbody :global(.avatar) {
+		display: grid;
+		place-items: center;
+		flex: none;
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		background: var(--bg-soft);
+		color: var(--text);
+		font-size: 13px;
+		font-weight: 600;
+	}
+	tbody :global(.who) {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+	tbody :global(.name) {
+		font-weight: 600;
+	}
+	tbody :global(.email) {
+		font-size: 13px;
+		color: var(--muted);
+		overflow-wrap: anywhere;
+	}
+	tbody :global(.is-off .name),
+	tbody :global(.is-off .avatar) {
+		color: var(--muted);
+	}
+	tbody :global(.badge) {
+		display: inline-block;
+		padding: 3px 10px;
+		border-radius: 999px;
+		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	tbody :global(.badge-on) {
+		background: #e6f4ea;
+		color: #1b6b34;
+	}
+	tbody :global(.badge-off) {
+		background: #f1f1f1;
+		color: #5f5f5f;
+	}
+	tbody :global(.badge-inline) {
+		display: none;
+	}
+	.col-date {
+		white-space: nowrap;
+		color: var(--muted);
+	}
+	.col-actions {
+		width: 1%;
+		white-space: nowrap;
+	}
+	tbody :global(.actions) {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
+	}
+	tbody :global(.act) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		height: 34px;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: #fff;
+		color: var(--text);
+		font: inherit;
+		font-size: 13px;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, border-color 0.15s;
+	}
+	tbody :global(.act:hover) {
+		background: var(--text);
+		border-color: var(--text);
+		color: #fff;
+	}
+	tbody :global(.act:focus-visible) {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	tbody :global(.del:hover) {
+		background: #c62828;
+		border-color: #c62828;
+	}
+	tbody :global(.toggle[data-state='active'] .i-check),
+	tbody :global(.toggle[data-state='deactivated'] .i-ban) {
+		display: none;
+	}
+	.empty {
+		margin: 0;
+		padding: 28px 16px;
+		text-align: center;
+		color: var(--muted);
+	}
+	.empty[hidden] {
+		display: none;
+	}
+
+	.pager {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		margin-top: 12px;
+	}
+	.range {
+		margin: 0;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.pager-buttons {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.page-label {
+		font-size: 13px;
+		color: var(--muted);
+	}
+
+	/* Stays in view while a long table is scrolled, so unsaved work is never out of sight. */
+	.changes {
+		position: sticky;
+		bottom: 16px;
+		z-index: 3;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		margin-top: 16px;
+		padding: 12px 16px;
+		border: 1px solid var(--text);
+		border-radius: 12px;
+		background: #fff;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+	}
+	.changes[hidden] {
+		display: none;
+	}
+	.changes-text {
+		margin: 0;
+		font-size: 14px;
+	}
+	.changes-text span {
+		color: var(--muted);
+	}
+	.changes-actions {
+		display: flex;
+		gap: 8px;
+	}
+
+	.btn {
+		height: 44px;
+		padding: 0 22px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+	}
+	.btn:active:not(:disabled) {
+		transform: scale(0.97);
+	}
+	.btn:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.primary {
+		border: 0;
+		background: var(--text);
+		color: #fff;
+	}
+	.primary:hover:not(:disabled) {
+		background: #333;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+	.ghost {
+		height: 38px;
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.ghost:hover:not(:disabled) {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	.danger {
+		border: 0;
+		background: #c62828;
+		color: #fff;
+	}
+	.danger:hover {
+		background: #a81f1f;
+	}
+
+	/* Dialogs, in the same style as the login popup. */
+	.dialog {
+		width: min(440px, calc(100vw - 32px));
+		padding: 28px;
+		border: 0;
+		border-radius: 12px;
+		color: var(--text);
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+		opacity: 0;
+		transform: translateY(16px) scale(0.96);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open] {
+		opacity: 1;
+		transform: none;
+	}
+	.dialog::backdrop {
+		background: rgba(0, 0, 0, 0);
+		transition:
+			background 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open]::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+	}
+	@starting-style {
+		.dialog[open] {
+			opacity: 0;
+			transform: translateY(16px) scale(0.96);
+		}
+		.dialog[open]::backdrop {
+			background: rgba(0, 0, 0, 0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.dialog,
+		.dialog::backdrop {
+			transition: none;
+		}
+	}
+	.dialog h2 {
+		margin: 0 0 16px;
+		font-size: 20px;
+	}
+	.dialog form {
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+	}
+	.name-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+	}
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		min-width: 0;
+	}
+	.label {
+		font-size: 14px;
+		font-weight: 500;
+	}
+	.field input {
+		height: 44px;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		font: inherit;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	.field input:focus {
+		outline: 0;
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+	.field input[aria-invalid='true'] {
+		border-color: #c62828;
+	}
+	.check {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		font-size: 14px;
+		cursor: pointer;
+	}
+	.check input {
+		width: 16px;
+		height: 16px;
+		margin: 0;
+		accent-color: var(--text);
+	}
+	.opt {
+		color: var(--muted);
+	}
+	.form-error {
+		min-height: 1.2em;
+		margin: 0;
+		font-size: 13px;
+		color: #c62828;
+	}
+	.dialog-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 4px;
+	}
+	.pw {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin: 0;
+		padding: 14px 16px 16px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+	}
+	.pw[hidden] {
+		display: none;
+	}
+	.pw legend {
+		padding: 0 6px;
+		font-size: 14px;
+		font-weight: 600;
+	}
+	.pw-hint,
+	.pw-staged {
+		margin: 0;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.pw-staged {
+		color: var(--text);
+	}
+	.linkbtn {
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--text);
+		font: inherit;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	.linkbtn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+		border-radius: 3px;
+	}
+	/* The dialog is taller now: let it scroll inside the screen rather than run off it. */
+	.dialog {
+		max-height: calc(100dvh - 32px);
+		overflow-y: auto;
+	}
+	tbody :global(.pending) {
+		margin-top: 2px;
+		font-size: 12px;
+		font-weight: 600;
+		color: #8a5a00;
+	}
+	tbody :global(.pending[hidden]) {
+		display: none;
+	}
+	.delete-text {
+		margin: 0 0 8px;
+		font-size: 14px;
+		color: var(--muted);
+		overflow-wrap: anywhere;
+	}
+
+	@media (max-width: 700px) {
+		.col-date,
+		.col-status {
+			display: none;
+		}
+		tbody :global(.badge-inline) {
+			display: inline-block;
+			align-self: flex-start;
+			margin-top: 4px;
+		}
+		th,
+		td {
+			padding: 10px 12px;
+		}
+		tbody :global(.user-cell) {
+			min-width: 0;
+		}
+		tbody :global(.act) {
+			width: 36px;
+			height: 36px;
+			padding: 0;
+		}
+		tbody :global(.act-text) {
+			display: none;
+		}
+	}
+	@media (max-width: 480px) {
+		.name-row {
+			grid-template-columns: 1fr;
+		}
+		/* The initials circle is decoration; on a small phone the room goes to the name and email. */
+		tbody :global(.avatar) {
+			display: none;
+		}
+	}
+</style>

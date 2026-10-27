@@ -1,0 +1,185 @@
+<header class="header">
+	<div class="container bar">
+		<a href="/" class="logo" aria-label="Picweb home">
+			<svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
+				<path d="M10 9V0h12v9H10zm12 5h10v18H0V14h10v9h12v-9z" fill="currentColor" />
+			</svg>
+		</a>
+		<form class="search" role="search" action="/" method="get">
+			<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M10 2a8 8 0 105.3 14l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z" fill="currentColor" />
+			</svg>
+			<input name="q" type="search" aria-label="Search photos" placeholder="Search high-resolution images" />
+		</form>
+		<div class="actions">
+			<button type="button" class="search-toggle" aria-label="Search photos" data-search-toggle>
+				<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+					<path d="M10 2a8 8 0 105.3 14l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z" fill="currentColor" />
+				</svg>
+			</button>
+			<button type="button" class="btn btn-login" data-open-login>Login</button>
+			<a href="/account" class="btn btn-account">Account</a>
+		</div>
+	</div>
+</header>
+
+<script>
+	const header = document.querySelector<HTMLElement>('.header');
+	const toggle = header?.querySelector<HTMLElement>('[data-search-toggle]');
+	const input = header?.querySelector<HTMLInputElement>('.search input');
+
+	// Mobile only: the magnifier reveals the search box; losing focus hides it again.
+	toggle?.addEventListener('click', () => {
+		header?.classList.add('searching');
+		input?.focus();
+	});
+	input?.addEventListener('blur', () => header?.classList.remove('searching'));
+</script>
+
+<style>
+	.header {
+		position: sticky;
+		top: 0;
+		z-index: 10;
+		background: var(--bg);
+	}
+	.bar {
+		display: flex;
+		align-items: center;
+		gap: 16px;
+		height: 64px;
+	}
+	.logo {
+		display: flex;
+	}
+	.search {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		height: 40px;
+		padding: 0 14px;
+		border-radius: 20px;
+		background: var(--bg-soft);
+		color: var(--muted);
+	}
+	.search:focus-within {
+		background: #fff;
+		box-shadow: 0 0 0 1px var(--border);
+	}
+	.search input {
+		flex: 1;
+		border: 0;
+		outline: 0;
+		background: transparent;
+		font: inherit;
+		color: var(--text);
+	}
+	.actions {
+		display: flex;
+		align-items: center;
+		font-size: 14px;
+	}
+	.actions {
+		gap: 8px;
+	}
+	.search-toggle {
+		display: none;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		border: 0;
+		border-radius: 50%;
+		background: none;
+		color: var(--text);
+		transition: background 0.15s;
+	}
+	.search-toggle:hover {
+		background: var(--bg-soft);
+	}
+	.search-toggle:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	/* Guests get the Login button, signed-in users a link to their account. */
+	:global(html[data-auth='guest']) .btn-account,
+	:global(html:not([data-auth='guest'])) .btn-login {
+		display: none;
+	}
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 9px 22px;
+		border: 0;
+		border-radius: 999px;
+		background: var(--text);
+		color: #fff;
+		font-weight: 600;
+		letter-spacing: 0.01em;
+		transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+	}
+	.btn:hover {
+		background: #333;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+	.btn:active {
+		transform: scale(0.97);
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	@media (max-width: 600px) {
+		.bar {
+			position: relative;
+		}
+		/* The search box overlays the bar and expands from the right (where the magnifier is). */
+		.search {
+			position: absolute;
+			top: 50%;
+			left: var(--gutter);
+			right: var(--gutter);
+			margin-top: -20px;
+			opacity: 0;
+			visibility: hidden;
+			clip-path: inset(-4px -4px -4px 100% round 24px);
+			/* Hide only after the collapse finishes. */
+			transition: clip-path 0.3s ease, opacity 0.2s ease, visibility 0s linear 0.3s;
+		}
+		.header.searching .search {
+			opacity: 1;
+			visibility: visible;
+			clip-path: inset(-4px -4px -4px -4px round 24px);
+			/* Become visible at once so the input can take focus right after the click. */
+			transition: clip-path 0.3s ease, opacity 0.2s ease, visibility 0s;
+		}
+		.logo,
+		.actions {
+			transition: opacity 0.2s ease, visibility 0.2s;
+		}
+		.header.searching .logo,
+		.header.searching .actions {
+			opacity: 0;
+			visibility: hidden;
+		}
+		@media (prefers-reduced-motion: reduce) {
+			.search,
+			.logo,
+			.actions {
+				transition: none;
+			}
+		}
+		.search-toggle {
+			display: grid;
+		}
+		.bar {
+			justify-content: space-between;
+		}
+		.btn {
+			min-width: 128px;
+			height: 44px;
+			padding: 0 28px;
+		}
+	}
+</style>

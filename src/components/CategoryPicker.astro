@@ -1,0 +1,237 @@
+---
+import type { Category } from '../data/categories';
+
+interface Props {
+	/** Unique per picker on the page; used to link the label, button and list. */
+	id: string;
+	categories: Category[];
+	/** Ids ticked at the start. Defaults to the first category (also when none of these ids exist). */
+	selected?: string[];
+}
+
+const { id, categories, selected } = Astro.props;
+const none = categories.length === 0;
+const initial = selected?.filter((s) => categories.some((c) => c.id === s)) ?? [];
+const ticked = new Set(initial.length > 0 ? initial : categories.slice(0, 1).map((c) => c.id));
+---
+
+<div class="picker" data-picker>
+	<span class="label" id={`${id}-label`}>Categories</span>
+
+	<div class="control">
+	<button
+		type="button"
+		class="trigger"
+		data-trigger
+		aria-haspopup="true"
+		aria-expanded="false"
+		aria-controls={`${id}-panel`}
+		aria-labelledby={`${id}-label ${id}-value`}
+		disabled={none}
+	>
+		<span class="value" id={`${id}-value`} data-value>{none ? 'No categories available' : ''}</span>
+		<svg class="chevron" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+			<path d="M7 10l5 5 5-5z" fill="currentColor" />
+		</svg>
+	</button>
+
+	<div class="panel" id={`${id}-panel`} role="group" aria-labelledby={`${id}-label`} data-panel hidden>
+		{
+			categories.map((category) => (
+				<label class="option">
+					<input type="checkbox" name="categories" value={category.id} data-name={category.name} checked={ticked.has(category.id)} />
+					<span>{category.name}</span>
+				</label>
+			))
+		}
+	</div>
+	</div>
+
+	<p class="error" role="alert" data-error></p>
+	{none && <p class="hint">Add categories under Admin → Categories first.</p>}
+</div>
+
+<script>
+	// Several pickers can be on one page (one per tab), so every instance is set up separately.
+	document.querySelectorAll<HTMLElement>('[data-picker]').forEach((picker) => {
+		const trigger = picker.querySelector<HTMLButtonElement>('[data-trigger]')!;
+		const panel = picker.querySelector<HTMLElement>('[data-panel]')!;
+		const value = picker.querySelector<HTMLElement>('[data-value]')!;
+		const error = picker.querySelector<HTMLElement>('[data-error]')!;
+		const boxes = Array.from(picker.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+		if (boxes.length === 0) return;
+
+		// "Editorial", "Editorial, Nature" or "Editorial, Nature +2".
+		const update = () => {
+			const names = boxes.filter((b) => b.checked).map((b) => b.dataset.name!);
+			value.textContent =
+				names.length === 0 ? 'Select categories' : names.length <= 2 ? names.join(', ') : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
+			value.classList.toggle('placeholder', names.length === 0);
+		};
+
+		const setOpen = (open: boolean) => {
+			panel.hidden = !open;
+			trigger.setAttribute('aria-expanded', String(open));
+		};
+
+		// `hidden` can also be the string "until-found"; any hidden state means "open it".
+		trigger.addEventListener('click', () => setOpen(panel.hidden !== false));
+		trigger.addEventListener('keydown', (e) => {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				setOpen(true);
+				boxes[0].focus();
+			}
+		});
+		picker.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape' && !panel.hidden) {
+				e.stopPropagation();
+				setOpen(false);
+				trigger.focus();
+			}
+		});
+		// Pressing the text of an option (not the checkbox itself) would move focus to the page, and
+		// the focusout rule below would close the list before the click toggles the box. Keeping
+		// focus where it is lets a click anywhere on the row work.
+		panel.addEventListener('mousedown', (e) => {
+			if (!(e.target as HTMLElement).closest('input')) e.preventDefault();
+		});
+		// Close when focus or a click leaves the picker.
+		picker.addEventListener('focusout', (e) => {
+			if (!picker.contains(e.relatedTarget as Node | null)) setOpen(false);
+		});
+		document.addEventListener('click', (e) => {
+			if (!picker.contains(e.target as Node)) setOpen(false);
+		});
+
+		boxes.forEach((box) =>
+			box.addEventListener('change', () => {
+				error.textContent = '';
+				update();
+			}),
+		);
+		// form.reset() restores the default (first category ticked) but fires no change event.
+		picker.closest('form')?.addEventListener('reset', () => queueMicrotask(update));
+
+		update();
+	});
+</script>
+
+<style>
+	.picker {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	/* The list is positioned against the button, not the whole picker. */
+	.control {
+		position: relative;
+	}
+	.label {
+		font-size: 14px;
+		font-weight: 500;
+	}
+	.trigger {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		width: 100%;
+		height: 44px;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		background: #fff;
+		color: var(--text);
+		font: inherit;
+		text-align: left;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	.trigger:hover:not(:disabled),
+	.trigger[aria-expanded='true'] {
+		border-color: var(--text);
+	}
+	.trigger:focus-visible {
+		outline: 0;
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+	.trigger:disabled {
+		background: var(--bg-soft);
+		color: var(--muted);
+	}
+	.value {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.value.placeholder {
+		color: var(--muted);
+	}
+	.chevron {
+		flex: none;
+		color: var(--muted);
+		transition: transform 0.15s;
+	}
+	.trigger[aria-expanded='true'] .chevron {
+		transform: rotate(180deg);
+	}
+	.panel {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		right: 0;
+		z-index: 5;
+		max-height: 260px;
+		padding: 0; /* rows run edge to edge, so there is no dead space around them */
+		overflow-y: auto;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		background: #fff;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+	}
+	.panel[hidden] {
+		display: none;
+	}
+	/* The whole row is the label, so a click anywhere on it toggles its checkbox. */
+	.option {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		min-height: 44px;
+		padding: 0 14px;
+		font-size: 14px;
+		cursor: pointer;
+		user-select: none;
+	}
+	.option:hover {
+		background: var(--bg-soft);
+	}
+	.option:has(input:checked) {
+		font-weight: 600;
+	}
+	.option input {
+		flex: none;
+		width: 16px;
+		height: 16px;
+		margin: 0;
+		accent-color: var(--text);
+	}
+	.option input:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.error {
+		margin: 0;
+		font-size: 13px;
+		color: #c62828;
+	}
+	.error:empty {
+		display: none;
+	}
+	.hint {
+		margin: 0;
+		font-size: 13px;
+		color: var(--muted);
+	}
+</style>

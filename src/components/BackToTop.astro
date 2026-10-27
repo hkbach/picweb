@@ -1,0 +1,86 @@
+<button type="button" class="back-to-top" id="back-to-top" aria-label="Back to top">
+	<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+		<path d="M12 5l7 7-1.4 1.4-4.6-4.6V20h-2V8.8l-4.6 4.6L5 12l7-7z" fill="currentColor" />
+	</svg>
+</button>
+
+<script>
+	const button = document.querySelector<HTMLButtonElement>('#back-to-top');
+	const SHOW_AFTER = 400;
+
+	if (button) {
+		const update = () => button.classList.toggle('visible', window.scrollY > SHOW_AFTER);
+		window.addEventListener('scroll', update, { passive: true });
+		update();
+
+		button.addEventListener('click', () => {
+			const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+			window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+		});
+	}
+</script>
+
+<style>
+	.back-to-top {
+		position: fixed;
+		right: 24px;
+		/* --cookie-bar-h is set while the cookie notice is showing, so the button stays above it. */
+		bottom: calc(24px + var(--cookie-bar-h, 0px));
+		z-index: 20;
+		display: grid;
+		place-items: center;
+		width: 48px;
+		height: 48px;
+		border: 0;
+		border-radius: 50%;
+		background: var(--text);
+		color: #fff;
+		box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY(12px);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			visibility 0s linear 0.25s,
+			background 0.15s;
+	}
+	.back-to-top.visible {
+		opacity: 1;
+		visibility: visible;
+		transform: none;
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			visibility 0s,
+			background 0.15s;
+	}
+	.back-to-top:hover {
+		background: #333;
+	}
+	.back-to-top:active {
+		transform: scale(0.94);
+	}
+	.back-to-top:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 3px;
+	}
+	@media (max-width: 600px) {
+		.back-to-top {
+			right: 16px;
+			bottom: calc(16px + var(--cookie-bar-h, 0px));
+			width: 56px;
+			height: 56px;
+		}
+		.back-to-top svg {
+			width: 26px;
+			height: 26px;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.back-to-top,
+		.back-to-top.visible {
+			transition: none;
+		}
+	}
+</style>

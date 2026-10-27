@@ -1,0 +1,333 @@
+<dialog id="login-modal" class="modal" aria-labelledby="login-title">
+	<button type="button" class="close" data-close-login aria-label="Close">×</button>
+	<div data-view="login">
+		<h2 id="login-title">Login</h2>
+		<p class="sub">Welcome back to Picweb.</p>
+
+		<form class="form" id="login-form">
+			<label for="login-email">Email</label>
+			<input id="login-email" name="email" type="email" autocomplete="email" required />
+
+			<label for="login-password">Password</label>
+			<input id="login-password" name="password" type="password" autocomplete="current-password" required />
+
+			<button type="submit" class="submit">Login</button>
+		</form>
+
+		<div class="divider"><span>or</span></div>
+
+		<div class="social">
+			<button type="button" class="social-btn">
+				<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+					<path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z" />
+					<path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+					<path fill="#FBBC05" d="M5.84 14.09A6.6 6.6 0 0 1 5.5 12c0-.72.13-1.43.34-2.09V7.07H2.18A11 11 0 0 0 1 12c0 1.78.43 3.45 1.18 4.93l3.66-2.84z" />
+					<path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z" />
+				</svg>
+				Login with Google
+			</button>
+			<button type="button" class="social-btn">
+				<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+					<path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+				</svg>
+				Login with X
+			</button>
+			<button type="button" class="social-btn">
+				<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+					<path fill="#1877F2" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+				</svg>
+				Login with Facebook
+			</button>
+		</div>
+
+		<button type="button" class="register-btn" data-show-view="register">Register new account</button>
+	</div>
+
+	<div data-view="register" hidden>
+		<h2 id="register-title">Register</h2>
+		<p class="sub">Create your Picweb account.</p>
+
+		<form class="form" id="register-form">
+			<div class="name-row">
+				<div class="field">
+					<label for="register-first-name">First Name</label>
+					<input id="register-first-name" name="firstName" type="text" autocomplete="given-name" maxlength="50" required />
+				</div>
+				<div class="field">
+					<label for="register-last-name">Last Name</label>
+					<input id="register-last-name" name="lastName" type="text" autocomplete="family-name" maxlength="50" required />
+				</div>
+			</div>
+
+			<label for="register-email">Email</label>
+			<input id="register-email" name="email" type="email" autocomplete="email" required />
+
+			<label for="register-password">Password</label>
+			<input id="register-password" name="password" type="password" autocomplete="new-password" minlength="8" required />
+
+			<label for="register-confirm">Confirm password</label>
+			<input id="register-confirm" name="confirm" type="password" autocomplete="new-password" required />
+
+			<button type="submit" class="submit">Create account</button>
+		</form>
+
+		<button type="button" class="register-btn" data-show-view="login">Already have an account? Login</button>
+	</div>
+</dialog>
+
+<script>
+	const modal = document.querySelector<HTMLDialogElement>('#login-modal');
+
+	if (modal) {
+		const views = modal.querySelectorAll<HTMLElement>('[data-view]');
+		const showView = (name: string) => {
+			views.forEach((v) => (v.hidden = v.dataset.view !== name));
+			modal.setAttribute('aria-labelledby', `${name}-title`);
+		};
+
+		document.querySelectorAll('[data-open-login]').forEach((el) => {
+			el.addEventListener('click', () => {
+				showView('login');
+				modal.showModal();
+			});
+		});
+
+		modal.querySelectorAll<HTMLElement>('[data-show-view]').forEach((el) => {
+			el.addEventListener('click', () => {
+				showView(el.dataset.showView!);
+				// The button that was pressed is now hidden; move focus to the first field of the new view.
+				modal.querySelector<HTMLElement>(`[data-view="${el.dataset.showView}"] input`)?.focus();
+			});
+		});
+		modal.querySelector('[data-close-login]')?.addEventListener('click', () => modal.close());
+		// Click on the backdrop (the dialog element itself) closes the modal.
+		modal.addEventListener('click', (e) => {
+			if (e.target === modal) modal.close();
+		});
+
+		// UI only: no authentication backend is wired up yet.
+		modal.querySelector('#login-form')?.addEventListener('submit', (e) => e.preventDefault());
+
+		const registerForm = modal.querySelector<HTMLFormElement>('#register-form');
+		const password = modal.querySelector<HTMLInputElement>('#register-password');
+		const confirm = modal.querySelector<HTMLInputElement>('#register-confirm');
+		const checkMatch = () =>
+			confirm?.setCustomValidity(confirm.value !== password?.value ? 'Passwords do not match' : '');
+		password?.addEventListener('input', checkMatch);
+		confirm?.addEventListener('input', checkMatch);
+		registerForm?.addEventListener('submit', (e) => e.preventDefault());
+	}
+</script>
+
+<style>
+	.modal {
+		width: min(400px, calc(100vw - 32px));
+		padding: 32px;
+		border: 0;
+		border-radius: 8px;
+		color: var(--text);
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+
+		/* Closed state; `display`/`overlay` are transitioned discretely so the exit animation can play. */
+		opacity: 0;
+		transform: translateY(16px) scale(0.96);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.modal[open] {
+		opacity: 1;
+		transform: none;
+	}
+	.modal::backdrop {
+		background: rgba(0, 0, 0, 0);
+		transition:
+			background 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.modal[open]::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+	}
+	/* Entry state, applied for the first frame after showModal(). */
+	@starting-style {
+		.modal[open] {
+			opacity: 0;
+			transform: translateY(16px) scale(0.96);
+		}
+		.modal[open]::backdrop {
+			background: rgba(0, 0, 0, 0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.modal,
+		.modal::backdrop {
+			transition: none;
+		}
+	}
+	.close {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		display: grid;
+		place-items: center;
+		width: 32px;
+		height: 32px;
+		border: 0;
+		border-radius: 50%;
+		background: none;
+		font-size: 24px;
+		line-height: 1;
+		color: var(--muted);
+		transition: background 0.15s, color 0.15s;
+	}
+	.close:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	@media (max-width: 600px) {
+		.close {
+			top: 8px;
+			right: 8px;
+			width: 44px;
+			height: 44px;
+			font-size: 32px;
+		}
+	}
+	.close:focus-visible,
+	.submit:focus-visible,
+	.social-btn:focus-visible,
+	.register-btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	h2 {
+		margin: 0 0 4px;
+		font-size: 28px;
+		text-align: center;
+	}
+	.sub {
+		margin: 0 0 24px;
+		text-align: center;
+		color: var(--muted);
+		font-size: 14px;
+	}
+	.name-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+	}
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		min-width: 0;
+	}
+	@media (max-width: 360px) {
+		.name-row {
+			grid-template-columns: 1fr;
+			gap: 0;
+		}
+	}
+	.form {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	label {
+		font-size: 14px;
+		font-weight: 500;
+	}
+	input {
+		height: 42px;
+		padding: 0 12px;
+		margin-bottom: 10px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		font: inherit;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	input:focus {
+		outline: 0;
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+	.submit {
+		height: 46px;
+		margin-top: 6px;
+		border: 0;
+		border-radius: 999px;
+		background: var(--text);
+		color: #fff;
+		font-weight: 600;
+		transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+	}
+	.submit:hover {
+		background: #333;
+		box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+	}
+	.submit:active {
+		transform: scale(0.98);
+	}
+	.divider {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin: 20px 0;
+		color: var(--muted);
+		font-size: 13px;
+	}
+	.divider::before,
+	.divider::after {
+		content: '';
+		flex: 1;
+		height: 1px;
+		background: var(--border);
+	}
+	.social {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+	.social-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 12px;
+		height: 46px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: #fff;
+		color: var(--text);
+		font-weight: 500;
+		transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+	}
+	.social-btn:hover {
+		background: #fafafa;
+		border-color: #999;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+	}
+	.social-btn:active {
+		transform: scale(0.98);
+	}
+	.register-btn {
+		width: 100%;
+		height: 46px;
+		margin-top: 20px;
+		border: 1.5px solid var(--text);
+		border-radius: 999px;
+		background: transparent;
+		color: var(--text);
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, transform 0.1s;
+	}
+	.register-btn:hover {
+		background: var(--text);
+		color: #fff;
+	}
+	.register-btn:active {
+		transform: scale(0.98);
+	}
+</style>
