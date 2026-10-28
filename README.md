@@ -70,6 +70,8 @@ How access works:
 
 The Homepage lists one cover per album, **the most recently created album first** (inside a category too). On touch screens, pressing and holding a public picture does not offer "Save image" for anyone, signed in or not (the browser's menu event is cancelled, the picture ignores touches so the press lands on its link, and iOS's callout and dragging are switched off); this only stops casual saving, not screenshots. Visitors who are not signed in also lose the right-click menu on desktop.
 
+Admin → Albums shows when each album was created (in the viewer's own time zone) and has a **Delete** button. Deleting asks first, then removes the album for good: its photos, categories, crawl history and every like and favorite of its photos, and also the pictures it kept on Cloudflare R2, except any that another album still uses. If Cloudflare cannot be reached or refuses, the album is still deleted and the page lists the picture names that remain in the bucket so they can be removed by hand.
+
 Every album made from a crawl keeps its **crawl history**: each address that was crawled for it, exactly as typed in the Crawling page, where it led (a Facebook share link becomes the post), its title and when. It is shown at the top of the album's Edit page as a record (editing the album does not change it) and is stored in the `album_sources` table for later tracking. The database upgrades itself when the server starts, so back up `data/` before updating.
 
 Admin → Crawling keeps the list of images between crawls: a new crawl **adds** its images to the list (an image already listed, by address or, for Facebook, by picture file, is skipped) and "Clear list" empties it. The album made from the list is named after the first page crawled into it.

@@ -62,6 +62,8 @@ export interface Album {
 	type: AlbumType;
 	/** When the album was created (ISO time). */
 	createdAt: string;
+	/** How many different pictures of this album are kept in the photo storage (Cloudflare R2), not on another site. */
+	storedCount: number;
 	categoryIds: string[];
 	cover: Photo;
 	photos: Photo[];
@@ -92,13 +94,14 @@ export function listAlbums(): Album[] {
 	const photos = listPhotos();
 	const byAlbum = new Map<number, Photo[]>();
 	for (const p of photos) byAlbum.set(p.album, [...(byAlbum.get(p.album) ?? []), p]);
+	const stored = new Map((db().prepare('SELECT album_id, COUNT(DISTINCT storage_key) AS n FROM photos WHERE storage_key IS NOT NULL GROUP BY album_id').all() as Array<{ album_id: number; n: number }>).map((r) => [r.album_id, r.n]));
 	const cats = db().prepare('SELECT ac.album_id, ac.category_id FROM album_categories ac JOIN categories c ON c.id = ac.category_id ORDER BY c.position').all() as Array<{ album_id: number; category_id: string }>;
 	const catsOf = new Map<number, string[]>();
 	for (const c of cats) catsOf.set(c.album_id, [...(catsOf.get(c.album_id) ?? []), c.category_id]);
 	return albums.flatMap((a) => {
 		const list = byAlbum.get(a.id) ?? [];
 		if (list.length === 0) return [];
-		return [{ id: a.id, title: a.title, type: a.type, createdAt: a.created_at, categoryIds: catsOf.get(a.id) ?? [], cover: list.find((p) => p.id === a.cover_photo_id) ?? list[0], photos: list }];
+		return [{ id: a.id, title: a.title, type: a.type, createdAt: a.created_at, storedCount: stored.get(a.id) ?? 0, categoryIds: catsOf.get(a.id) ?? [], cover: list.find((p) => p.id === a.cover_photo_id) ?? list[0], photos: list }];
 	});
 }
 

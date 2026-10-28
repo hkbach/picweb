@@ -106,4 +106,5 @@ Vào **Admin → Create new album → Upload from device**, chọn vài ảnh r�
 - Mỗi ảnh được đặt tên bằng **mã băm nội dung ảnh** (ví dụ `3f2a…c9.jpg`), nên cùng một ảnh tải hai lần chỉ lưu một bản, và tên file gốc trên máy bạn không bao giờ đi lên mạng.
 - Máy chủ kiểm tra nội dung từng file (chỉ nhận JPG, PNG, GIF, WebP, tối đa 10 MB mỗi ảnh) trước khi lưu.
 - Khi bạn xóa một ảnh khỏi album, ảnh đó cũng bị xóa khỏi bucket, trừ khi album khác vẫn đang dùng nó.
+- Khi bạn bấm **Delete** một album ở trang **Admin → Albums**, mọi ảnh của album đó trên Cloudflare cũng bị xóa (trừ ảnh album khác còn dùng). Nếu Cloudflare không xóa được, album vẫn bị xóa và trang sẽ liệt kê tên các file còn lại để bạn xóa tay trong Cloudflare → R2 → bucket → Objects.
 - Ảnh album tạo từ link (From URLs) **không** lưu lên Cloudflare: chúng vẫn nằm ở trang gốc.

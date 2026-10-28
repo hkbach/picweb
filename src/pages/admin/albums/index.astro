@@ -17,21 +17,26 @@ const now = Date.now();
 const categoryName = new Map(categories.map((c) => [c.id, c.name]));
 const namesOf = (ids: string[]) => ids.map((id) => categoryName.get(id)).filter((name): name is string => Boolean(name));
 
+// The time is written in UTC here; the script at the bottom of the page shows it in the viewer's own time zone.
+const createdText = (iso: string) => `${new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC`;
+
 // Rendered on demand so the middleware can require an administrator before anything is sent.
 export const prerender = false;
 ---
 
 <AdminLayout title="Albums" heading="Albums">
 	<div class="toolbar">
-		<p class="summary">{albums.length} album{albums.length === 1 ? '' : 's'}</p>
-		<a href="/admin/albums/new" class="btn">Create new album</a>
+		<p class="summary" id="album-count">{albums.length} album{albums.length === 1 ? '' : 's'}</p>
+		<a href="/admin/albums/new" class="btn" id="create-link">Create new album</a>
 	</div>
+
+	<p class="status" id="list-status" role="status" tabindex="-1"></p>
 
 	{
 		albums.length === 0 ? (
-			<p class="empty">No albums yet. Create the first one.</p>
+			<p class="empty" id="empty">No albums yet. Create the first one.</p>
 		) : (
-			<div class="table-wrap">
+			<div class="table-wrap" id="table-wrap">
 				<table>
 					<caption class="visually-hidden">Albums and how each one was created</caption>
 					<thead>
@@ -43,14 +48,15 @@ export const prerender = false;
 							<th scope="col" class="col-cats">Categories</th>
 							<th scope="col" class="num">Photos</th>
 							<th scope="col">Type</th>
+							<th scope="col" class="col-created">Created</th>
 							<th scope="col" class="col-actions">
 								<span class="visually-hidden">Actions</span>
 							</th>
 						</tr>
 					</thead>
-					<tbody>
+					<tbody id="album-rows">
 						{albums.map((album) => (
-							<tr>
+							<tr data-album-id={album.id}>
 								<td class="col-cover">
 									<img
 										src={album.cover.thumb}
@@ -62,9 +68,12 @@ export const prerender = false;
 									/>
 								</td>
 								<th scope="row" class="title">
-									{album.title}
-									{/* Phones drop the Categories column and show the names under the title instead. */}
+									<span class="title-text">{album.title}</span>
+									{/* Phones drop the Categories and Created columns and show them under the title instead. */}
 									<span class="cats-inline">{namesOf(album.categoryIds).join(', ')}</span>
+									<span class="created-inline">
+										<time datetime={album.createdAt} data-local-time>{createdText(album.createdAt)}</time>
+									</span>
 								</th>
 								<td class="col-cats">
 									{
@@ -89,13 +98,33 @@ export const prerender = false;
 										);
 									})()}
 								</td>
+								<td class="col-created">
+									<time datetime={album.createdAt} data-local-time>{createdText(album.createdAt)}</time>
+								</td>
 								<td class="col-actions">
-									<a href={`/admin/albums/${album.id}/edit`} class="edit" aria-label={`Edit ${album.title}`}>
-										<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-											<path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor" />
-										</svg>
-										<span class="edit-text">Edit</span>
-									</a>
+									<div class="actions">
+										<a href={`/admin/albums/${album.id}/edit`} class="edit" aria-label={`Edit ${album.title}`}>
+											<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+												<path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor" />
+											</svg>
+											<span class="edit-text">Edit</span>
+										</a>
+										<button
+											type="button"
+											class="delete"
+											data-delete
+											data-id={album.id}
+											data-title={album.title}
+											data-photos={album.photos.length}
+											data-stored={album.storedCount}
+											aria-label={`Delete ${album.title}`}
+										>
+											<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+												<path d="M6 19a2 2 0 002 2h8a2 2 0 002-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor" />
+											</svg>
+											<span class="delete-text">Delete</span>
+										</button>
+									</div>
 								</td>
 							</tr>
 						))}
@@ -104,7 +133,131 @@ export const prerender = false;
 			</div>
 		)
 	}
+
+	<dialog id="delete-dialog" class="dialog" aria-labelledby="delete-title" aria-describedby="delete-text">
+		<h2 id="delete-title"></h2>
+		<p class="dialog-text" id="delete-text"></p>
+		<p class="dialog-note" id="delete-storage"></p>
+		<p class="dialog-note">Likes and favorites of its photos are removed too. This cannot be undone.</p>
+		<p class="dialog-error" id="delete-error" role="alert"></p>
+		<div class="dialog-actions">
+			<button type="button" class="dialog-btn ghost" id="delete-cancel" autofocus>Cancel</button>
+			<button type="button" class="dialog-btn danger" id="delete-confirm">Delete album</button>
+		</div>
+	</dialog>
 </AdminLayout>
+
+<script>
+	// ---- the time an album was created, in the viewer's own time zone
+	const when = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+	document.querySelectorAll<HTMLTimeElement>('time[data-local-time]').forEach((el) => {
+		const date = new Date(el.dateTime);
+		if (!Number.isNaN(date.getTime())) el.textContent = when.format(date);
+	});
+
+	// ---- delete an album (after asking), together with its pictures on Cloudflare
+	const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
+	const dialog = $<HTMLDialogElement>('#delete-dialog');
+	const dialogTitle = $('#delete-title');
+	const dialogText = $('#delete-text');
+	const dialogStorage = $('#delete-storage');
+	const dialogError = $('#delete-error');
+	const confirmButton = $<HTMLButtonElement>('#delete-confirm');
+	const cancelButton = $<HTMLButtonElement>('#delete-cancel');
+	const status = $('#list-status');
+	const count = $('#album-count');
+
+	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+	const say = (message: string, isError = false) => {
+		status.textContent = message;
+		status.classList.toggle('is-error', isError);
+	};
+
+	let pending: { id: string; title: string; row: HTMLTableRowElement; button: HTMLButtonElement } | null = null;
+
+	document.addEventListener('click', (e) => {
+		const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-delete]');
+		if (!button) return;
+		const photos = Number(button.dataset.photos ?? 0);
+		const stored = Number(button.dataset.stored ?? 0);
+		pending = { id: button.dataset.id!, title: button.dataset.title ?? '', row: button.closest('tr')!, button };
+		dialogTitle.textContent = `Delete “${pending.title}”?`;
+		dialogText.textContent = `This permanently deletes the album and its ${plural(photos, 'photo')}.`;
+		dialogStorage.textContent =
+			stored > 0
+				? `${plural(stored, 'picture')} of it ${stored === 1 ? 'is' : 'are'} stored on Cloudflare and will be deleted from there as well (a picture that another album still uses is kept).`
+				: 'None of its pictures are stored on Cloudflare (they are links to other sites), so nothing is deleted there.';
+		dialogError.textContent = '';
+		confirmButton.disabled = false;
+		dialog.showModal();
+	});
+
+	cancelButton.addEventListener('click', () => dialog.close());
+	dialog.addEventListener('click', (e) => {
+		if (e.target === dialog) dialog.close();
+	});
+
+	// What the answer of the server means, in words.
+	const describe = (title: string, r: { photos: number; stored: number; removedFromStorage: number; keptInStorage: number; notRemoved: string[]; storageUnavailable: boolean }) => {
+		const parts = [`Album “${title}” was deleted (${plural(r.photos, 'photo')}).`];
+		if (r.stored === 0) return { text: parts.join(' '), problem: false };
+		if (r.removedFromStorage > 0) parts.push(`${plural(r.removedFromStorage, 'picture')} ${r.removedFromStorage === 1 ? 'was' : 'were'} also deleted from Cloudflare.`);
+		if (r.keptInStorage > 0) parts.push(`${plural(r.keptInStorage, 'picture')} ${r.keptInStorage === 1 ? 'is' : 'are'} still used by another album, so ${r.keptInStorage === 1 ? 'it was' : 'they were'} kept.`);
+		if (r.notRemoved.length > 0) {
+			const names = r.notRemoved.slice(0, 5).join(', ') + (r.notRemoved.length > 5 ? ', …' : '');
+			parts.push(
+				r.storageUnavailable
+					? `${plural(r.notRemoved.length, 'picture')} could not be deleted from Cloudflare because photo storage is not set up on this server. Delete ${r.notRemoved.length === 1 ? 'it' : 'them'} by hand in the Cloudflare dashboard: ${names}.`
+					: `${plural(r.notRemoved.length, 'picture')} could not be deleted from Cloudflare (it may be unreachable or the key was refused). Delete ${r.notRemoved.length === 1 ? 'it' : 'them'} by hand in the Cloudflare dashboard: ${names}.`,
+			);
+		}
+		return { text: parts.join(' '), problem: r.notRemoved.length > 0 };
+	};
+
+	confirmButton.addEventListener('click', async () => {
+		if (!pending) return;
+		const { id, title, row } = pending;
+		confirmButton.disabled = true;
+		cancelButton.disabled = true;
+		dialogError.textContent = '';
+		let response: Response | null = null;
+		try {
+			response = await fetch(`/api/admin/albums/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' });
+		} catch {
+			// handled below
+		}
+		cancelButton.disabled = false;
+		if (!response || !response.ok) {
+			const data = await response?.json().catch(() => null);
+			confirmButton.disabled = false;
+			// Keep the question open so it can be tried again; nothing was deleted.
+			dialogError.textContent = response?.status === 404 ? 'This album no longer exists. Reload the page.' : (data?.error ?? 'The album could not be deleted. Nothing was changed. Please try again.');
+			return;
+		}
+		const result = await response.json();
+		dialog.close();
+
+		// Take the row off the page and keep keyboard focus nearby.
+		const next = (row.nextElementSibling ?? row.previousElementSibling)?.querySelector<HTMLElement>('[data-delete]') ?? null;
+		row.remove();
+		const left = document.querySelectorAll('#album-rows tr').length;
+		count.textContent = plural(left, 'album');
+		if (left === 0) {
+			const empty = document.createElement('p');
+			empty.className = 'empty';
+			empty.id = 'empty';
+			empty.textContent = 'No albums yet. Create the first one.';
+			$('#table-wrap').replaceWith(empty);
+		}
+		const outcome = describe(title, result);
+		say(outcome.text, outcome.problem);
+		(next ?? status).focus();
+		pending = null;
+	});
+	dialog.addEventListener('close', () => {
+		if (pending && !confirmButton.disabled) pending.button.focus(); // closed without deleting: back to where it was
+	});
+</script>
 
 <style>
 	.toolbar {
@@ -112,13 +265,30 @@ export const prerender = false;
 		align-items: center;
 		justify-content: space-between;
 		gap: 12px;
-		max-width: 860px;
+		max-width: 1000px;
 		margin: -8px 0 16px;
 	}
 	.summary {
 		margin: 0;
 		font-size: 14px;
 		color: var(--muted);
+	}
+	.status {
+		max-width: 1000px;
+		min-height: 1.4em;
+		margin: 0 0 10px;
+		font-size: 14px;
+		color: var(--muted);
+		overflow-wrap: anywhere;
+	}
+	.status:empty {
+		display: none;
+	}
+	.status.is-error {
+		color: #c62828;
+	}
+	.status:focus {
+		outline: 0;
 	}
 	.btn {
 		display: inline-flex;
@@ -148,7 +318,7 @@ export const prerender = false;
 
 	/* The table scrolls sideways inside this box on narrow screens instead of widening the page. */
 	.table-wrap {
-		max-width: 860px;
+		max-width: 1000px;
 		overflow-x: auto;
 		border: 1px solid var(--border);
 		border-radius: 12px;
@@ -199,6 +369,14 @@ export const prerender = false;
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
+	.col-created {
+		font-size: 13px;
+		white-space: nowrap;
+		color: var(--muted);
+	}
+	.created-inline {
+		display: none;
+	}
 
 	.cats {
 		display: flex;
@@ -226,93 +404,6 @@ export const prerender = false;
 		display: none;
 	}
 
-	.col-actions {
-		width: 1%;
-		text-align: right;
-		white-space: nowrap;
-	}
-	.edit {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		height: 34px;
-		padding: 0 14px;
-		border: 1.5px solid var(--text);
-		border-radius: 999px;
-		color: var(--text);
-		font-size: 13px;
-		font-weight: 600;
-		transition: background 0.15s, color 0.15s, transform 0.1s;
-	}
-	.edit:hover {
-		background: var(--text);
-		color: #fff;
-	}
-	.edit:active {
-		transform: scale(0.96);
-	}
-	.edit:focus-visible {
-		outline: 2px solid var(--text);
-		outline-offset: 2px;
-	}
-
-	/* Phones: tighter cells and a smaller cover so the Type and Edit columns fit without sideways scrolling. */
-	@media (max-width: 600px) {
-		.col-cats {
-			display: none;
-		}
-		.cats-inline {
-			display: block;
-			margin-top: 2px;
-			font-size: 12px;
-			font-weight: 400;
-			color: var(--muted);
-		}
-		.cats-inline:empty {
-			display: none;
-		}
-		.edit {
-			width: 36px;
-			height: 36px;
-			padding: 0;
-			justify-content: center;
-		}
-		.edit-text {
-			display: none;
-		}
-		th,
-		td {
-			padding: 10px 10px;
-		}
-		.col-cover {
-			padding-left: 12px;
-		}
-		.col-cover img {
-			width: 40px;
-			height: 40px;
-			border-radius: 6px;
-		}
-		.expiry {
-		display: block;
-		margin-top: 4px;
-		font-size: 12px;
-		color: var(--muted);
-	}
-	.expiry.gone {
-		color: #c62828;
-	}
-	.type {
-			padding: 3px 8px;
-		}
-	}
-	/* The photo count is the least important column; it makes way for Type and Edit on small phones. */
-	@media (max-width: 480px) {
-		th.num,
-		td.num {
-			display: none;
-		}
-	}
-
 	/* The label carries the meaning; colour only reinforces it. */
 	.type {
 		display: inline-block;
@@ -329,5 +420,246 @@ export const prerender = false;
 	.type-uploaded {
 		background: #e6f4ea;
 		color: #1b6b34;
+	}
+	.expiry {
+		display: block;
+		margin-top: 4px;
+		font-size: 12px;
+		color: var(--muted);
+	}
+	.expiry.gone {
+		color: #c62828;
+	}
+
+	.col-actions {
+		width: 1%;
+		text-align: right;
+		white-space: nowrap;
+	}
+	.actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.edit,
+	.delete {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 34px;
+		padding: 0 14px;
+		border-radius: 999px;
+		background: transparent;
+		font: inherit;
+		font-size: 13px;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, transform 0.1s;
+	}
+	.edit {
+		border: 1.5px solid var(--text);
+		color: var(--text);
+	}
+	.edit:hover {
+		background: var(--text);
+		color: #fff;
+	}
+	.delete {
+		border: 1.5px solid #c62828;
+		color: #c62828;
+	}
+	.delete:hover {
+		background: #c62828;
+		color: #fff;
+	}
+	.edit:active,
+	.delete:active {
+		transform: scale(0.96);
+	}
+	.edit:focus-visible,
+	.delete:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+
+	/* The confirmation question, in the same style as the other admin dialogs. */
+	.dialog {
+		width: min(460px, calc(100vw - 32px));
+		padding: 28px;
+		border: 0;
+		border-radius: 12px;
+		color: var(--text);
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+		opacity: 0;
+		transform: translateY(16px) scale(0.96);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open] {
+		opacity: 1;
+		transform: none;
+	}
+	.dialog::backdrop {
+		background: rgba(0, 0, 0, 0);
+		transition:
+			background 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open]::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+	}
+	@starting-style {
+		.dialog[open] {
+			opacity: 0;
+			transform: translateY(16px) scale(0.96);
+		}
+		.dialog[open]::backdrop {
+			background: rgba(0, 0, 0, 0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.dialog,
+		.dialog::backdrop {
+			transition: none;
+		}
+	}
+	.dialog h2 {
+		margin: 0 0 12px;
+		font-size: 20px;
+		overflow-wrap: anywhere;
+	}
+	.dialog-text {
+		margin: 0 0 10px;
+		font-size: 15px;
+	}
+	.dialog-note {
+		margin: 0 0 8px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.dialog-error {
+		margin: 8px 0 0;
+		font-size: 13px;
+		color: #c62828;
+	}
+	.dialog-error:empty {
+		display: none;
+	}
+	.dialog-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 16px;
+	}
+	.dialog-btn {
+		height: 44px;
+		padding: 0 24px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+	}
+	.dialog-btn:active {
+		transform: scale(0.97);
+	}
+	.dialog-btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.dialog-btn:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	.dialog-btn.ghost {
+		border: 1.5px solid var(--border);
+		background: #fff;
+		color: var(--text);
+	}
+	.dialog-btn.ghost:hover:not(:disabled) {
+		border-color: var(--text);
+	}
+	.dialog-btn.danger {
+		border: 0;
+		background: #c62828;
+		color: #fff;
+	}
+	.dialog-btn.danger:hover:not(:disabled) {
+		background: #a81f1f;
+	}
+
+	/* Tablets and phones: Categories make way for the created date shown under the title. */
+	@media (max-width: 800px) {
+		.col-created {
+			display: none;
+		}
+		.created-inline {
+			display: block;
+			margin-top: 2px;
+			font-size: 12px;
+			font-weight: 400;
+			color: var(--muted);
+		}
+	}
+
+	/* Phones: tighter cells and a smaller cover so the Type, Edit and Delete columns fit without sideways scrolling. */
+	@media (max-width: 600px) {
+		.col-cats {
+			display: none;
+		}
+		.cats-inline {
+			display: block;
+			margin-top: 2px;
+			font-size: 12px;
+			font-weight: 400;
+			color: var(--muted);
+		}
+		.cats-inline:empty {
+			display: none;
+		}
+		.edit,
+		.delete {
+			width: 36px;
+			height: 36px;
+			padding: 0;
+			justify-content: center;
+		}
+		.edit-text,
+		.delete-text {
+			display: none;
+		}
+		.actions {
+			gap: 6px;
+		}
+		th,
+		td {
+			padding: 10px 10px;
+		}
+		.col-cover {
+			padding-left: 12px;
+		}
+		.col-cover img {
+			width: 40px;
+			height: 40px;
+			border-radius: 6px;
+		}
+		.type {
+			padding: 3px 8px;
+		}
+		.dialog-actions {
+			flex-direction: column-reverse;
+		}
+		.dialog-btn {
+			width: 100%;
+		}
+	}
+	/* The photo count is the least important column; it makes way for Type and the buttons on small phones. */
+	@media (max-width: 480px) {
+		th.num,
+		td.num {
+			display: none;
+		}
 	}
 </style>

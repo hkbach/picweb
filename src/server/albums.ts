@@ -171,13 +171,43 @@ export function replaceAlbum(actorId: string, albumId: number, input: { title: s
 	return removedKeys;
 }
 
-/** Deletes stored pictures that no photo refers to any more (after a change committed, or one that failed). */
-export async function removeUnreferenced(keys: string[]) {
-	const storage = getStorage();
-	if (!storage) return;
+export interface RemovalReport {
+	/** Pictures deleted from the photo storage. */
+	removed: number;
+	/** Pictures that another album still uses, so they were kept. */
+	kept: number;
+	/** Pictures that could not be deleted (names only: they are hashes, not secrets). */
+	failed: string[];
+	/** True when there is no photo storage configured on this server, so none of them could be deleted. */
+	unavailable: boolean;
+}
+
+/**
+ * Deletes stored pictures that no photo refers to any more (after a change committed, or one that failed), and
+ * says what happened to each. A picture that another album still uses is never deleted.
+ */
+export async function removeUnreferenced(keys: string[]): Promise<RemovalReport> {
+	const report: RemovalReport = { removed: 0, kept: 0, failed: [], unavailable: false };
+	const candidates: string[] = [];
 	for (const key of new Set(keys)) {
 		if (!MEDIA_KEY.test(key)) continue;
-		const used = db().prepare('SELECT 1 FROM photos WHERE storage_key = ? LIMIT 1').get(key);
-		if (!used) await storage.remove(key).catch(() => {});
+		if (db().prepare('SELECT 1 FROM photos WHERE storage_key = ? LIMIT 1').get(key)) report.kept++;
+		else candidates.push(key);
 	}
+	if (candidates.length === 0) return report;
+	const storage = getStorage();
+	if (!storage) {
+		report.unavailable = true;
+		report.failed = candidates;
+		return report;
+	}
+	for (const key of candidates) {
+		try {
+			await storage.remove(key);
+			report.removed++;
+		} catch {
+			report.failed.push(key);
+		}
+	}
+	return report;
 }
