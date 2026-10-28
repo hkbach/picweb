@@ -21,8 +21,9 @@ export const prerender = false;
 		<p class="source-note" id="source-note" hidden>
 			For a link to ONE public Facebook post. Picweb opens the post’s photo viewer and goes through the photos one by one (up to 50), so the
 			pictures come at the larger size Facebook shows there. It does not sign in to Facebook, so private posts and groups cannot be read, and
-			it stops if Facebook asks for a login. The pictures’ addresses stop working after a while, so keep them with “Download and create new
-			album”. Facebook’s terms limit automated collection: only crawl posts you have the right to use.
+			it stops if Facebook asks for a login. An album made from the links works only until the pictures’ addresses expire (a few days; the
+			date is shown after crawling), so use “Download and create new album” to keep copies. Facebook’s terms limit automated collection: only
+			crawl posts you have the right to use.
 		</p>
 		<div class="field">
 			<label for="target-url">Target URL</label>
@@ -97,6 +98,7 @@ export const prerender = false;
 
 <script>
 	import { MAX_ALBUM_PHOTOS, saveDraft, saveDownloadedDraft, rememberDownloadedNames, savedNameFromUrl } from '../../scripts/album-draft';
+	import { facebookExpiry, formatExpiry, untilExpiry } from '../../scripts/facebook-expiry';
 
 	const createButton = document.querySelector<HTMLButtonElement>('#create-album')!;
 	const clearButton = document.querySelector<HTMLButtonElement>('#clear-list')!;
@@ -193,17 +195,28 @@ export const prerender = false;
 
 	resultsTitle.tabIndex = -1; // lets focus land here when the last thumbnail is removed
 	resultsTitle.setAttribute('aria-live', 'polite');
+	// The earliest time a Facebook picture address in the list stops working, or null if there is none (or no time is known).
+	const earliestExpiry = () => {
+		const times = Array.from(list.children)
+			.map((li) => Number((li as HTMLElement).dataset.expires))
+			.filter((t) => t > 0);
+		return times.length > 0 ? Math.min(...times) : null;
+	};
+	const expiryText = () => {
+		const at = earliestExpiry();
+		return at === null ? 'after a while' : `on ${formatExpiry(at)} (${untilExpiry(at)})`;
+	};
+
 	const updateTitle = () => {
 		const count = list.children.length;
 		resultsTitle.textContent = count === 0 ? 'No images left' : `${count} image${count === 1 ? '' : 's'} found`;
-		// Facebook picture addresses expire, so an album that only stores the links would soon show nothing:
-		// pictures from Facebook can only be kept by downloading them.
 		const hasFacebook = list.querySelector('[data-source="facebook"]') !== null;
-		createButton.hidden = count === 0 || hasFacebook;
+		createButton.hidden = count === 0;
 		downloadButton.hidden = count === 0;
 		clearButton.hidden = count === 0;
 		const notes: string[] = [];
-		if (hasFacebook) notes.push('Facebook picture addresses stop working after a while, so use “Download and create new album” to keep copies.');
+		// An album made from links keeps Facebook's addresses, which stop working: say when, and what keeps copies.
+		if (hasFacebook) notes.push(`Facebook picture addresses stop working ${expiryText()}. An album made from these links shows broken pictures after that; “Download and create new album” keeps copies.`);
 		if (count > MAX_ALBUM_PHOTOS) notes.push(`An album holds up to ${MAX_ALBUM_PHOTOS} photos, so only the first ${MAX_ALBUM_PHOTOS} will be used.`);
 		albumNote.textContent = notes.join(' ');
 	};
@@ -219,6 +232,10 @@ export const prerender = false;
 	});
 
 	createButton.addEventListener('click', () => {
+		// Pictures from Facebook only keep working until their addresses expire: make that a conscious choice.
+		if (list.querySelector('[data-source="facebook"]') && !window.confirm(`Some of these pictures are from Facebook, and their addresses stop working ${expiryText()}. After that the album will show broken pictures.
+
+Create the album from links anyway? (“Download and create new album” keeps copies instead.)`)) return;
 		const photos = Array.from(list.children)
 			.slice(0, MAX_ALBUM_PHOTOS)
 			.map((item) => ({ url: (item as HTMLElement).dataset.url ?? '', alt: (item as HTMLElement).dataset.alt ?? '' }));
@@ -475,6 +492,8 @@ export const prerender = false;
 			item.dataset.key = keyOf(img.url);
 			item.dataset.source = source;
 			item.dataset.page = data.finalUrl;
+			const expires = facebookExpiry(img.url);
+			if (expires !== null) item.dataset.expires = String(expires);
 			item.dataset.pageTitle = data.title;
 
 			// Clicking a thumbnail opens the original; the address itself is not shown.

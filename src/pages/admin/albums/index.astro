@@ -1,9 +1,17 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { albumTypeLabels, listAlbums, listCategories } from '../../../server/repo.ts';
+import { facebookExpiry, formatExpiry } from '../../../scripts/facebook-expiry.ts';
 
 const albums = listAlbums();
 const categories = listCategories();
+
+// An album made from links to Facebook pictures stops showing them when those addresses expire.
+const expiryOf = (photos: Array<{ src: string }>) => {
+	const times = photos.map((p) => facebookExpiry(p.src)).filter((t): t is number => t !== null);
+	return times.length > 0 ? Math.min(...times) : null;
+};
+const now = Date.now();
 
 // Category names for an album, in the album's own order. An id that no longer exists is skipped.
 const categoryName = new Map(categories.map((c) => [c.id, c.name]));
@@ -74,6 +82,12 @@ export const prerender = false;
 								<td class="num">{album.photos.length}</td>
 								<td>
 									<span class={`type type-${album.type}`}>{albumTypeLabels[album.type]}</span>
+									{(() => {
+										const at = expiryOf(album.photos);
+										return at === null ? null : (
+											<span class:list={['expiry', { gone: at <= now }]}>{at <= now ? 'Facebook links expired' : `Facebook links expire ${formatExpiry(at)}`}</span>
+										);
+									})()}
 								</td>
 								<td class="col-actions">
 									<a href={`/admin/albums/${album.id}/edit`} class="edit" aria-label={`Edit ${album.title}`}>
@@ -278,7 +292,16 @@ export const prerender = false;
 			height: 40px;
 			border-radius: 6px;
 		}
-		.type {
+		.expiry {
+		display: block;
+		margin-top: 4px;
+		font-size: 12px;
+		color: var(--muted);
+	}
+	.expiry.gone {
+		color: #c62828;
+	}
+	.type {
 			padding: 3px 8px;
 		}
 	}
