@@ -38,19 +38,15 @@ for (let i = 0; i < photos.length; i += PAGE_SIZE) batches.push(photos.slice(i, 
 	const button = grid?.querySelector<HTMLButtonElement>('[data-load-more]');
 
 	if (grid && more && button) {
-		// Guests may load this many extra batches; after that they must log in.
-		const FREE_LOADS = 1;
-		let loads = 0;
-
 		button.addEventListener('click', () => {
-			if (loads >= FREE_LOADS && document.documentElement.dataset.auth === 'guest') {
+			// Loading more needs an account: a guest gets the login popup and nothing is loaded, not even once.
+			if (document.documentElement.dataset.auth === 'guest') {
 				document.querySelector<HTMLElement>('[data-open-login]')?.click();
 				return;
 			}
 			const batch = grid.querySelector<HTMLElement>('.batch[hidden]');
 			if (!batch) return;
 			batch.hidden = false;
-			loads++;
 			batch.querySelector<HTMLElement>('a')?.focus({ preventScroll: true });
 			if (!grid.querySelector('.batch[hidden]')) more.hidden = true;
 		});
