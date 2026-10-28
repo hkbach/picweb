@@ -9,7 +9,7 @@ const favorites = new Set<number>();
 
 // A button belongs to the photo card it sits in, or to the photo currently shown in the album popup.
 const photoIdOf = (el: Element): number | null => {
-	const id = el.closest<HTMLElement>('[data-photo-id]')?.dataset.photoId ?? el.closest<HTMLElement>('#album-modal')?.dataset.photoId;
+	const id = el.closest<HTMLElement>('[data-photo-id]')?.dataset.photoId ?? el.closest<HTMLElement>('#album-modal')?.dataset.currentPhoto;
 	return id ? Number(id) : null;
 };
 

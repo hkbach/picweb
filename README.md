@@ -45,7 +45,7 @@ Everything the site stores is in one SQLite file, `data/picweb.db` (folder set b
 Set up a new database:
 
 ```sh
-npm run create-admin -- admin@example.com "First" "Last"   # asks for the password (12+ characters) at a hidden prompt
+npm run create-admin -- admin@example.com "First" "Last"   # asks for the password at a hidden prompt
 npm run seed:demo                                          # development only: made-up albums, users, categories
 ```
 

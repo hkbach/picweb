@@ -119,7 +119,8 @@ const json = JSON.stringify({ albums, photoAlbum }).replace(/</g, '\\u003c');
 		const show = (i: number) => {
 			index = (i + items.length) % items.length;
 			const photo = items[index];
-			dialog.dataset.photoId = String(photo.id);
+			// Not data-photo-id: the click handler below treats anything inside such an element as "open this album".
+			dialog.dataset.currentPhoto = String(photo.id);
 			image.src = photo.src;
 			image.alt = photo.alt;
 			count.textContent = `${index + 1} / ${items.length}`;

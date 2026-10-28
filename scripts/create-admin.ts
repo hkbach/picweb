@@ -37,10 +37,6 @@ if (problem) {
 	console.error(problem);
 	process.exit(1);
 }
-if (password.length < 12) {
-	console.error('An administrator password needs at least 12 characters.');
-	process.exit(1);
-}
 
 const hash = await hashPassword(password);
 const existing = db().prepare('SELECT id FROM users WHERE email = ?').get(email) as { id: string } | undefined;
