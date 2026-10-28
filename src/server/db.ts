@@ -123,6 +123,14 @@ const MIGRATIONS: string[] = [
 	ALTER TABLE albums ADD COLUMN converted_from INTEGER;
 	ALTER TABLE albums ADD COLUMN converted_to INTEGER;
 	`,
+	`
+	-- How many times each photo was opened in the album popup. Only a counter per photo: no visitor, address or time is
+	-- stored. It goes when the photo goes.
+	CREATE TABLE photo_views (
+		photo_id INTEGER PRIMARY KEY REFERENCES photos(id) ON DELETE CASCADE,
+		views INTEGER NOT NULL DEFAULT 0
+	);
+	`,
 ];
 
 type Db = DatabaseSync;

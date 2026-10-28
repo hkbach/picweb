@@ -1,0 +1,397 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { listPhotoStats } from '../../server/stats.ts';
+
+// Loaded on every request; the table is drawn in the page from this data so it can be sorted without asking the server.
+const stats = listPhotoStats();
+const totals = {
+	photos: stats.length,
+	views: stats.reduce((sum, s) => sum + s.views, 0),
+	likes: stats.reduce((sum, s) => sum + s.likes, 0),
+	favorites: stats.reduce((sum, s) => sum + s.favorites, 0),
+};
+// "<" is escaped so no text in a photo or album title can end the script element.
+const data = JSON.stringify(stats).replace(/</g, '\\u003c');
+
+// Rendered on demand so the middleware can require an administrator before anything is sent.
+export const prerender = false;
+---
+
+<AdminLayout title="Photo stats" heading="Photo stats">
+	<p class="intro">
+		How often each photo was opened in the album popup (views), liked, and added to a collection (favorites). Views are counted from when
+		this feature was added, once per photo for each visit of a browser tab.
+	</p>
+
+	<dl class="totals" aria-label="Totals">
+		<div>
+			<dt>Photos</dt>
+			<dd id="t-photos">{totals.photos.toLocaleString('en-US')}</dd>
+		</div>
+		<div>
+			<dt>Views</dt>
+			<dd id="t-views">{totals.views.toLocaleString('en-US')}</dd>
+		</div>
+		<div>
+			<dt>Likes</dt>
+			<dd id="t-likes">{totals.likes.toLocaleString('en-US')}</dd>
+		</div>
+		<div>
+			<dt>Favorites</dt>
+			<dd id="t-favorites">{totals.favorites.toLocaleString('en-US')}</dd>
+		</div>
+	</dl>
+
+	{
+		stats.length === 0 ? (
+			<p class="empty">There are no photos yet.</p>
+		) : (
+			<>
+				<div class="table-wrap">
+					<table id="stats-table">
+						<caption class="visually-hidden">Views, likes and favorites of each photo. Sorted by the column marked in its header.</caption>
+						<thead>
+							<tr>
+								<th scope="col" class="col-photo">
+									<span class="visually-hidden">Photo</span>
+								</th>
+								<th scope="col">Album</th>
+								<th scope="col" class="num" data-column="views" aria-sort="none">
+									<button type="button" class="sort" data-sort="views" title="Sort by views">
+										Views <span class="sort-arrow" aria-hidden="true" />
+									</button>
+								</th>
+								<th scope="col" class="num" data-column="likes" aria-sort="descending">
+									<button type="button" class="sort" data-sort="likes" title="Sort by likes">
+										Likes <span class="sort-arrow" aria-hidden="true">▼</span>
+									</button>
+								</th>
+								<th scope="col" class="num" data-column="favorites" aria-sort="none">
+									<button type="button" class="sort" data-sort="favorites" title="Sort by favorites">
+										Favorites <span class="sort-arrow" aria-hidden="true" />
+									</button>
+								</th>
+							</tr>
+						</thead>
+						<tbody id="stats-rows" />
+					</table>
+				</div>
+				<p class="shown" id="shown" aria-live="polite" />
+				<div class="more" id="more-wrap" hidden>
+					<button type="button" class="btn ghost" id="more">Show more</button>
+				</div>
+			</>
+		)
+	}
+
+	<script type="application/json" id="stats-data" is:inline set:html={data} />
+</AdminLayout>
+
+<script>
+	interface Stat {
+		id: number;
+		thumb: string;
+		alt: string;
+		albumId: number;
+		albumTitle: string;
+		albumStatus: 'active' | 'deactivated';
+		views: number;
+		likes: number;
+		favorites: number;
+	}
+	type Column = 'views' | 'likes' | 'favorites';
+
+	const dataEl = document.querySelector('#stats-data');
+	const body = document.querySelector<HTMLElement>('#stats-rows');
+	if (dataEl && body) {
+		const stats: Stat[] = JSON.parse(dataEl.textContent ?? '[]');
+		const PAGE = 100; // rows drawn at a time
+		const shownText = document.querySelector<HTMLElement>('#shown')!;
+		const moreWrap = document.querySelector<HTMLElement>('#more-wrap')!;
+		const moreButton = document.querySelector<HTMLButtonElement>('#more')!;
+		const number = new Intl.NumberFormat('en-US');
+		let column: Column = 'likes';
+		let direction: 'asc' | 'desc' = 'desc';
+		let shown = PAGE;
+
+		// The chosen column first; ties keep a sensible order (likes, then views, then favorites, most first, then oldest photo).
+		const order = (): Stat[] => {
+			const sign = direction === 'asc' ? 1 : -1;
+			return [...stats].sort((a, b) => sign * (a[column] - b[column]) || b.likes - a.likes || b.views - a.views || b.favorites - a.favorites || a.id - b.id);
+		};
+
+		const draw = () => {
+			const rows = order();
+			body.replaceChildren(
+				...rows.slice(0, shown).map((s) => {
+					const tr = document.createElement('tr');
+					tr.dataset.photoId = String(s.id);
+
+					const photo = document.createElement('td');
+					photo.className = 'col-photo';
+					const img = document.createElement('img');
+					img.src = s.thumb;
+					img.alt = s.alt;
+					img.width = 56;
+					img.height = 56;
+					img.loading = 'lazy';
+					img.decoding = 'async';
+					img.referrerPolicy = 'no-referrer';
+					photo.append(img);
+
+					const album = document.createElement('th');
+					album.scope = 'row';
+					album.className = 'album';
+					const link = document.createElement('a');
+					link.href = `/admin/albums/${s.albumId}/edit`;
+					link.textContent = s.albumTitle;
+					album.append(link);
+					if (s.albumStatus === 'deactivated') {
+						const off = document.createElement('span');
+						off.className = 'off';
+						off.textContent = 'Deactivated';
+						album.append(off);
+					}
+
+					const cells = (['views', 'likes', 'favorites'] as const).map((c) => {
+						const td = document.createElement('td');
+						td.className = 'num';
+						td.dataset.col = c;
+						td.textContent = number.format(s[c]);
+						return td;
+					});
+					tr.append(photo, album, ...cells);
+					return tr;
+				}),
+			);
+			shownText.textContent = `Showing ${number.format(Math.min(shown, stats.length))} of ${number.format(stats.length)} photos`;
+			moreWrap.hidden = shown >= stats.length;
+			moreButton.textContent = `Show more (${number.format(stats.length - shown)} left)`;
+			for (const th of document.querySelectorAll<HTMLElement>('th[data-column]')) {
+				const on = th.dataset.column === column;
+				th.setAttribute('aria-sort', on ? (direction === 'asc' ? 'ascending' : 'descending') : 'none');
+				th.querySelector('.sort-arrow')!.textContent = on ? (direction === 'asc' ? '▲' : '▼') : '';
+			}
+		};
+
+		// A new column starts with the most; the same column again turns the order around.
+		document.querySelectorAll<HTMLButtonElement>('[data-sort]').forEach((button) => {
+			button.addEventListener('click', () => {
+				const next = button.dataset.sort as Column;
+				if (next === column) direction = direction === 'desc' ? 'asc' : 'desc';
+				else {
+					column = next;
+					direction = 'desc';
+				}
+				shown = PAGE;
+				draw();
+			});
+		});
+		moreButton.addEventListener('click', () => {
+			shown += PAGE;
+			draw();
+			// keep the keyboard on the button when it is still there, otherwise on the table
+			if (!moreWrap.hidden) moreButton.focus();
+		});
+		draw();
+	}
+</script>
+
+<style>
+	.intro {
+		max-width: 720px;
+		margin: -8px 0 16px;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.totals {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 12px;
+		max-width: 1040px;
+		margin: 0 0 20px;
+	}
+	.totals div {
+		min-width: 120px;
+		padding: 12px 16px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.totals dt {
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--muted);
+	}
+	.totals dd {
+		margin: 4px 0 0;
+		font-size: 22px;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+	}
+	.empty {
+		color: var(--muted);
+	}
+
+	.table-wrap {
+		max-width: 1040px;
+		overflow-x: auto;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 14px;
+	}
+	/* Rows are made by the script, so their cells need :global to get the same rules as the header. */
+	th,
+	tbody :global(th),
+	tbody :global(td) {
+		padding: 10px 16px;
+		text-align: left;
+		vertical-align: middle;
+	}
+	thead th {
+		background: #fafafa;
+		border-bottom: 1px solid var(--border);
+		color: var(--muted);
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+	tbody :global(tr + tr > *) {
+		border-top: 1px solid var(--bg-soft);
+	}
+	tbody :global(tr:hover) {
+		background: #fafafa;
+	}
+	.col-photo,
+	tbody :global(.col-photo) {
+		width: 1%;
+		padding-right: 0;
+	}
+	tbody :global(.col-photo img) {
+		display: block;
+		width: 56px;
+		height: 56px;
+		border-radius: 8px;
+		object-fit: cover;
+		background: var(--bg-soft);
+	}
+	.num,
+	tbody :global(.num) {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	tbody :global(.album) {
+		font-weight: 600;
+	}
+	tbody :global(.album a) {
+		overflow-wrap: anywhere;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	tbody :global(.album a:focus-visible) {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+		border-radius: 2px;
+	}
+	tbody :global(.off) {
+		display: block;
+		margin-top: 2px;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--muted);
+	}
+
+	/* The headers of the three counts are buttons: they sort the table. */
+	.sort {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		font: inherit;
+		letter-spacing: inherit;
+		text-transform: inherit;
+		cursor: pointer;
+	}
+	.sort:hover,
+	[aria-sort='ascending'] .sort,
+	[aria-sort='descending'] .sort {
+		color: var(--text);
+	}
+	.sort:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+		border-radius: 4px;
+	}
+	.sort-arrow {
+		display: inline-block;
+		min-width: 0.8em;
+		font-size: 9px;
+	}
+
+	.shown {
+		max-width: 1040px;
+		margin: 10px 0 0;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.more {
+		display: flex;
+		justify-content: center;
+		margin: 12px 0 20px;
+	}
+	.more[hidden] {
+		display: none;
+	}
+	.btn {
+		height: 40px;
+		padding: 0 18px;
+		border: 0;
+		border-radius: 999px;
+		background: none;
+		color: var(--muted);
+		font: inherit;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.btn:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+
+	@media (max-width: 600px) {
+		th,
+		tbody :global(th),
+		tbody :global(td) {
+			padding: 8px 6px;
+		}
+		thead th {
+			font-size: 10px;
+			letter-spacing: 0.02em;
+		}
+		tbody :global(.col-photo img) {
+			width: 40px;
+			height: 40px;
+		}
+		tbody :global(.col-photo) {
+			padding-left: 8px;
+		}
+		.totals div {
+			flex: 1 1 calc(50% - 6px);
+		}
+	}
+</style>
