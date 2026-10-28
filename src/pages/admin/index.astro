@@ -1,4 +1,7 @@
 ---
 // The admin area currently has a single page.
 return Astro.redirect('/admin/crawling');
+
+// Rendered on demand so the middleware can require an administrator before anything is sent.
+export const prerender = false;
 ---

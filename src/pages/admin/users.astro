@@ -6,6 +6,9 @@ import { users, snapshotDate } from '../../data/users';
 
 // Escape "<" so the data can never close the script tag it is embedded in.
 const json = JSON.stringify({ snapshot: snapshotDate, users }).replace(/</g, '\\u003c');
+
+// Rendered on demand so the middleware can require an administrator before anything is sent.
+export const prerender = false;
 ---
 
 <AdminLayout title="User management" heading="User management">

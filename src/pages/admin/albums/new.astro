@@ -1,6 +1,9 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import AlbumForms from '../../../components/AlbumForms.astro';
+
+// Rendered on demand so the middleware can require an administrator before anything is sent.
+export const prerender = false;
 ---
 
 <AdminLayout title="Create new album" heading="Create new album">

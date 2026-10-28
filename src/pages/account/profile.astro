@@ -1,14 +1,18 @@
 ---
 import AccountLayout from '../../layouts/AccountLayout.astro';
-import { user } from '../../data/account';
+
+// Rendered on the server for the signed-in user (the middleware refuses everyone else).
+export const prerender = false;
+const user = Astro.locals.user!;
 ---
 
 <AccountLayout title="Profile" heading="Profile">
-	<form class="profile" id="profile-form" novalidate>
+	<form class="profile" id="profile-form" novalidate data-avatar={user.avatar ?? ''}>
+		{user.mustChangePassword && <p class="notice" role="status">An administrator set a temporary password for you. Please choose your own below.</p>}
 		<section class="avatar-block" aria-labelledby="avatar-title">
 			<h2 id="avatar-title">Avatar</h2>
 			<div class="avatar-row">
-				<span class="preview" id="avatar-preview" role="img" aria-label="Avatar preview">{user.firstName[0]}</span>
+				<span class="preview" id="avatar-preview" role="img" aria-label="Avatar preview">{user.firstName[0]?.toUpperCase()}</span>
 				<div class="avatar-actions">
 					<div class="buttons">
 						<button type="button" class="btn secondary" id="choose-avatar">Upload photo</button>
@@ -61,9 +65,8 @@ import { user } from '../../data/account';
 </AccountLayout>
 
 <script>
-	import { readProfile, writeProfile, applyProfile } from '../../scripts/profile-store';
-	import { changePassword } from '../../scripts/auth-api';
-
+	import { applyProfile } from '../../scripts/profile-store';
+	import { changePassword, saveProfile } from '../../scripts/auth-api';
 
 	const MAX_FILE = 5 * 1024 * 1024;
 	const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -113,12 +116,8 @@ import { user } from '../../data/account';
 		return canvas.toDataURL('image/jpeg', 0.85);
 	};
 
-	const saved = readProfile();
-	if (saved) {
-		first.value = saved.firstName;
-		last.value = saved.lastName;
-		avatar = saved.avatar;
-	}
+	// The saved avatar was rendered into the form by the server.
+	avatar = form.dataset.avatar || null;
 	renderPreview();
 
 	first.addEventListener('input', renderPreview);
@@ -166,23 +165,26 @@ import { user } from '../../data/account';
 			if (confirmPw.value !== newPw.value) return invalid(confirmPw, 'The new passwords do not match.');
 		}
 
-		const profile = { firstName, lastName, avatar };
-		if (!writeProfile(profile)) return say('Could not save: browser storage is unavailable.', true);
-		applyProfile(profile);
-
-		if (!wantsPassword) return say('Profile saved.');
-
 		saveButton.disabled = true;
+		const saved = await saveProfile({ firstName, lastName, avatar });
+		if (!saved.ok) {
+			saveButton.disabled = false;
+			return say(saved.error, true);
+		}
+		applyProfile(saved.user);
+
+		if (!wantsPassword) {
+			saveButton.disabled = false;
+			return say('Profile saved.');
+		}
+
 		const result = await changePassword(newPw.value);
 		saveButton.disabled = false;
 		// Never keep passwords in the form after the attempt.
 		newPw.value = confirmPw.value = '';
 
 		if (result.ok) return say('Profile and password saved.');
-		if (result.reason === 'not-configured') {
-			return say('Profile saved. The password was not changed: no account service is connected yet.', true);
-		}
-		say('Profile saved, but the password could not be changed. Please try again.', true);
+		say(`Profile saved, but the password was not changed. ${result.error}`, true);
 	});
 </script>
 
@@ -278,6 +280,13 @@ import { user } from '../../data/account';
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 16px;
+	}
+	.notice {
+		margin: 0;
+		padding: 10px 12px;
+		border-radius: 8px;
+		background: var(--bg-soft);
+		font-size: 14px;
 	}
 	.status {
 		margin: 0;

@@ -1,21 +1,22 @@
 import type { APIRoute } from 'astro';
 import { crawlImages, parseTargetUrl } from '../../../../crawler/crawl-images.ts';
-import { adminApiEnabled, json, rejectUnlessSameOriginJson } from '../../../server/admin-api.ts';
+import { adminApiEnabled, json, rejectUnlessSameOriginJson, requireAdmin } from '../../../server/admin-api.ts';
 
 // Runs on the server on demand; the rest of the site stays static.
 export const prerender = false;
 
 // This endpoint opens a real browser on any URL it is given, so it is locked down:
 //  - disabled unless running `astro dev` or CRAWL_API_ENABLED=true is set explicitly,
-//  - allowed host names and same-origin JSON requests only (blocks cross-site forms, scripts and DNS rebinding),
+//  - an administrator's session, an allowed host name and a same-origin JSON request (blocks cross-site forms, scripts and DNS rebinding),
 //  - one crawl at a time, with fixed limits that the client cannot raise.
-// There is still NO authentication: do not expose this to the internet until admin login exists.
 const LIMITS = { maxImages: 300, timeoutMs: 30_000, minSize: 400 };
 
 let busy = false;
 
 export const POST: APIRoute = async ({ request }) => {
 	if (!adminApiEnabled) return json({ error: 'Crawling is disabled on this server.' }, 403);
+	const admin = requireAdmin(request);
+	if (admin instanceof Response) return admin;
 	const rejected = rejectUnlessSameOriginJson(request);
 	if (rejected) return rejected;
 

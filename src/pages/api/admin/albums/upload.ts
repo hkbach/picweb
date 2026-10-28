@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { adminApiEnabled, json, rejectCrossOrigin } from '../../../../server/admin-api.ts';
+import { adminApiEnabled, json, rejectCrossOrigin, requireAdmin } from '../../../../server/admin-api.ts';
 
 // The place where the host will be integrated: the Upload tab of Create new album posts a finished album
 // here. Until storage exists this answers 501 ("not implemented"), which the page shows as "no album
@@ -21,5 +21,7 @@ export const POST: APIRoute = async ({ request }) => {
 	if (!adminApiEnabled) return json({ error: 'This is disabled on this server.' }, 403);
 	const crossOrigin = rejectCrossOrigin(request);
 	if (crossOrigin) return crossOrigin;
+	const admin = requireAdmin(request);
+	if (admin instanceof Response) return admin;
 	return json({ error: 'Album storage is not connected yet.' }, 501);
 };

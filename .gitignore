@@ -26,3 +26,6 @@ pnpm-debug.log*
 # images downloaded by the admin Crawling page (keep the folder, not its contents)
 photos_dowloaded/*
 !photos_dowloaded/.gitkeep
+
+# SQLite database and anything else the server stores (accounts!)
+data/

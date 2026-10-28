@@ -1,5 +1,8 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
+
+// Rendered on demand so the middleware can require an administrator before anything is sent.
+export const prerender = false;
 ---
 
 <AdminLayout title="Crawling" heading="Crawling">

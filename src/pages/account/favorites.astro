@@ -2,6 +2,8 @@
 import AccountLayout from '../../layouts/AccountLayout.astro';
 import PhotoTiles from '../../components/PhotoTiles.astro';
 import { favoritePhotos } from '../../data/account';
+
+export const prerender = false;
 ---
 
 <AccountLayout title="Favorites" heading="Favorites">

@@ -1,7 +1,8 @@
 import path from 'node:path';
+import { userFromRequest, type SessionUser } from './sessions.ts';
 
 // Shared rules for the admin endpoints that run on the server and reach the network or the disk.
-// There is still NO authentication: do not expose these to the internet until admin login exists.
+// Every one of them also requires an administrator's session (requireAdmin at the end of this file).
 
 /** Off unless running `astro dev` or CRAWL_API_ENABLED=true is set on purpose. */
 export const adminApiEnabled = import.meta.env.DEV || process.env.CRAWL_API_ENABLED === 'true';
@@ -47,6 +48,13 @@ export function rejectUntrustedHost(request: Request): Response | null {
 	return null;
 }
 
+/** Refuses a request that another website's page made, without looking at the host name (public endpoints). */
+export function rejectCrossSite(request: Request): Response | null {
+	const origin = request.headers.get('origin');
+	if (origin && origin !== new URL(request.url).origin) return json({ error: 'Cross-origin requests are not allowed.' }, 403);
+	return null;
+}
+
 /** Refuses a request that another website's page made: browsers state where a request came from. */
 export function rejectCrossOrigin(request: Request): Response | null {
 	const untrusted = rejectUntrustedHost(request);
@@ -79,3 +87,18 @@ export const MAX_PHOTOS_IN_FOLDER = 2000;
 
 /** The folder's name as shown to the admin. */
 export const PHOTOS_FOLDER_NAME = path.basename(PHOTOS_DIR);
+
+/** The signed-in user, or a 401 response. */
+export function requireUser(request: Request): SessionUser | Response {
+	return userFromRequest(request) ?? json({ error: 'Sign in first.' }, 401);
+}
+
+/** The signed-in administrator, or a 401 / 403 response. Also checks the host name, so use it on every admin endpoint. */
+export function requireAdmin(request: Request): SessionUser | Response {
+	const untrusted = rejectUntrustedHost(request);
+	if (untrusted) return untrusted;
+	const user = userFromRequest(request);
+	if (!user) return json({ error: 'Sign in first.' }, 401);
+	if (user.role !== 'admin') return json({ error: 'Administrators only.' }, 403);
+	return user;
+}

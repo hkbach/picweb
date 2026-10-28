@@ -11,6 +11,7 @@
 			<label for="login-password">Password</label>
 			<input id="login-password" name="password" type="password" autocomplete="current-password" required />
 
+			<p class="form-error" role="alert" data-error></p>
 			<button type="submit" class="submit">Login</button>
 		</form>
 
@@ -68,6 +69,7 @@
 			<label for="register-confirm">Confirm password</label>
 			<input id="register-confirm" name="confirm" type="password" autocomplete="new-password" required />
 
+			<p class="form-error" role="alert" data-error></p>
 			<button type="submit" class="submit">Create account</button>
 		</form>
 
@@ -76,6 +78,8 @@
 </dialog>
 
 <script>
+	import { login, register, type AuthResult } from '../scripts/auth-api';
+
 	const modal = document.querySelector<HTMLDialogElement>('#login-modal');
 
 	if (modal) {
@@ -105,9 +109,6 @@
 			if (e.target === modal) modal.close();
 		});
 
-		// UI only: no authentication backend is wired up yet.
-		modal.querySelector('#login-form')?.addEventListener('submit', (e) => e.preventDefault());
-
 		const registerForm = modal.querySelector<HTMLFormElement>('#register-form');
 		const password = modal.querySelector<HTMLInputElement>('#register-password');
 		const confirm = modal.querySelector<HTMLInputElement>('#register-confirm');
@@ -115,7 +116,47 @@
 			confirm?.setCustomValidity(confirm.value !== password?.value ? 'Passwords do not match' : '');
 		password?.addEventListener('input', checkMatch);
 		confirm?.addEventListener('input', checkMatch);
-		registerForm?.addEventListener('submit', (e) => e.preventDefault());
+
+		// Where to go after signing in: the page that asked for it (a same-site path only), else stay here.
+		const params = new URLSearchParams(window.location.search);
+		const nextPath = params.get('next');
+		const safeNext = nextPath && /^\/(?!\/)[^\s\\]*$/.test(nextPath) ? nextPath : null;
+
+		const finish = (user: { role: string }) => {
+			if (safeNext && (safeNext.startsWith('/account') || user.role === 'admin')) window.location.assign(safeNext);
+			else window.location.reload();
+		};
+
+		// Shows the server's message under the form (as text only).
+		const submitWith = (form: HTMLFormElement, send: (data: FormData) => Promise<AuthResult>) => {
+			const error = form.querySelector<HTMLElement>('[data-error]')!;
+			const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+			form.addEventListener('submit', async (e) => {
+				e.preventDefault();
+				error.textContent = '';
+				button.disabled = true;
+				const result = await send(new FormData(form));
+				button.disabled = false;
+				if (result.ok) {
+					form.reset();
+					return finish(result.user);
+				}
+				error.textContent = result.error;
+			});
+		};
+		const loginForm = modal.querySelector<HTMLFormElement>('#login-form');
+		if (loginForm) submitWith(loginForm, (d) => login(String(d.get('email')), String(d.get('password'))));
+		if (registerForm) {
+			submitWith(registerForm, (d) =>
+				register({ firstName: String(d.get('firstName')), lastName: String(d.get('lastName')), email: String(d.get('email')), password: String(d.get('password')) }),
+			);
+		}
+
+		// A guarded page sent the visitor here (?login=required): open the popup straight away.
+		if (params.get('login') === 'required') {
+			showView('login');
+			modal.showModal();
+		}
 	}
 </script>
 
@@ -207,6 +248,14 @@
 		margin: 0 0 4px;
 		font-size: 28px;
 		text-align: center;
+	}
+	.form-error {
+		margin: 0;
+		font-size: 13px;
+		color: #c62828;
+	}
+	.form-error:empty {
+		display: none;
 	}
 	.sub {
 		margin: 0 0 24px;

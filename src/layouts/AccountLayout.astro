@@ -2,7 +2,6 @@
 import Layout from './Layout.astro';
 import Header from '../components/Header.astro';
 import AlbumModal from '../components/AlbumModal.astro';
-import { user, fullName } from '../data/account';
 import { photos } from '../data/photos';
 
 interface Props {
@@ -11,6 +10,9 @@ interface Props {
 }
 
 const { title, heading } = Astro.props;
+// The middleware only lets a signed-in user reach this page.
+const user = Astro.locals.user!;
+const fullName = `${user.firstName} ${user.lastName}`.trim();
 const path = Astro.url.pathname.replace(/\/$/, '') || '/';
 
 const items = [
@@ -26,7 +28,7 @@ const items = [
 	<div class="container shell">
 		<aside class="side">
 			<div class="who">
-				<span class="avatar" data-user-avatar aria-hidden="true">{user.firstName[0]}</span>
+				<span class="avatar" data-user-avatar aria-hidden="true" style={user.avatar ? `background-image:url(${JSON.stringify(user.avatar)})` : undefined}>{user.avatar ? '' : user.firstName[0]?.toUpperCase()}</span>
 				<div class="who-text">
 					<strong data-user-name>{fullName}</strong>
 					<span>{user.email}</span>
@@ -52,16 +54,11 @@ const items = [
 </Layout>
 
 <script>
-	import { readProfile, applyProfile } from '../scripts/profile-store';
+	import { logout } from '../scripts/auth-api';
 
-	// Show the name and avatar saved on the Profile page, if any.
-	const profile = readProfile();
-	if (profile) applyProfile(profile);
-</script>
-
-<script>
-	// No real session exists yet, so logging out just returns to the public home page.
-	document.querySelector('[data-logout]')?.addEventListener('click', () => {
+	// Ends the session on the server first, then returns to the public home page.
+	document.querySelector('[data-logout]')?.addEventListener('click', async () => {
+		await logout();
 		window.location.assign('/');
 	});
 </script>

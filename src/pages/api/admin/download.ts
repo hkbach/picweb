@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { downloadImage, DownloadError } from '../../../../crawler/download-image.ts';
-import { MAX_PHOTOS_IN_FOLDER, PHOTOS_DIR, adminApiEnabled, json, rejectUnlessSameOriginJson } from '../../../server/admin-api.ts';
+import { MAX_PHOTOS_IN_FOLDER, PHOTOS_DIR, adminApiEnabled, json, rejectUnlessSameOriginJson, requireAdmin } from '../../../server/admin-api.ts';
 
 // Downloads ONE image per request, so the page can show progress and carry on after a failure.
 export const prerender = false;
@@ -11,6 +11,8 @@ let running = 0;
 
 export const POST: APIRoute = async ({ request }) => {
 	if (!adminApiEnabled) return json({ error: 'Downloading is disabled on this server.' }, 403);
+	const admin = requireAdmin(request);
+	if (admin instanceof Response) return admin;
 	const rejected = rejectUnlessSameOriginJson(request);
 	if (rejected) return rejected;
 

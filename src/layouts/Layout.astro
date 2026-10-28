@@ -34,5 +34,8 @@ const {
 		<slot />
 		{/* Admin pages are noindex and internal: visitors never see the notice there. */}
 		{!noindex && <CookieBanner />}
+		<script>
+			import '../scripts/session';
+		</script>
 	</body>
 </html>

@@ -45,9 +45,11 @@ const items: Array<{ href: string; label: string; match?: RegExp }> = [
 </Layout>
 
 <script>
-	// No real session exists yet, so logging out just returns to the public home page.
-	// When sign-in is added, this is where the session must be ended on the server first.
-	document.querySelector('[data-logout]')?.addEventListener('click', () => {
+	import { logout } from '../scripts/auth-api';
+
+	// Ends the session on the server first, then returns to the public home page.
+	document.querySelector('[data-logout]')?.addEventListener('click', async () => {
+		await logout();
 		window.location.assign('/');
 	});
 </script>

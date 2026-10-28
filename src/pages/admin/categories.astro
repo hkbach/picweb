@@ -4,6 +4,9 @@ import { categories } from '../../data/categories';
 
 // Escape "<" so the data can never close the script tag it is embedded in.
 const json = JSON.stringify(categories).replace(/</g, '\\u003c');
+
+// Rendered on demand so the middleware can require an administrator before anything is sent.
+export const prerender = false;
 ---
 
 <AdminLayout title="Categories" heading="Categories">

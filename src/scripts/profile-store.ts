@@ -1,33 +1,9 @@
-// Client-side profile storage. There is no backend yet, so the profile lives in this browser's
-// localStorage only; swap these functions for API calls when an account service exists.
+// Shows the signed-in user's name and avatar. The data comes from the account service
+// (/api/auth/me and /api/account/profile); nothing about the profile is kept in browser storage.
 export interface Profile {
 	firstName: string;
 	lastName: string;
-	avatar: string | null; // data:image/... URL produced by the profile page
-}
-
-const KEY = 'picweb:profile';
-
-export function readProfile(): Profile | null {
-	try {
-		const raw = localStorage.getItem(KEY);
-		if (!raw) return null;
-		const p = JSON.parse(raw);
-		if (typeof p?.firstName !== 'string' || typeof p?.lastName !== 'string') return null;
-		const avatar = typeof p.avatar === 'string' && p.avatar.startsWith('data:image/') ? p.avatar : null;
-		return { firstName: p.firstName, lastName: p.lastName, avatar };
-	} catch {
-		return null;
-	}
-}
-
-export function writeProfile(profile: Profile): boolean {
-	try {
-		localStorage.setItem(KEY, JSON.stringify(profile));
-		return true;
-	} catch {
-		return false;
-	}
+	avatar: string | null; // data:image/... URL
 }
 
 // Updates every name and avatar on the page: [data-user-name] and [data-user-avatar].
@@ -37,7 +13,8 @@ export function applyProfile(profile: Profile) {
 		el.textContent = name;
 	});
 	document.querySelectorAll<HTMLElement>('[data-user-avatar]').forEach((el) => {
-		if (profile.avatar) {
+		// Only an image the server accepted (see cleanAvatar) is ever put into a style.
+		if (profile.avatar && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(profile.avatar)) {
 			el.style.backgroundImage = `url("${profile.avatar}")`;
 			el.textContent = '';
 		} else {

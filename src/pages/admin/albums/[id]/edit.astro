@@ -4,13 +4,9 @@ import AlbumForms from '../../../../components/AlbumForms.astro';
 import { albums, albumTypeLabels } from '../../../../data/albums';
 import { fullPhotoUrl } from '../../../../data/photos';
 
-// Albums are placeholder data for now, so each Edit page is generated ahead of time.
-// With a real album service this becomes an on-demand page that loads the album by id.
-export function getStaticPaths() {
-	return albums.map((album) => ({ params: { id: String(album.id) }, props: { album } }));
-}
-
-const { album } = Astro.props;
+// Loaded by id on every request (placeholder data until the album service is connected).
+const album = albums.find((a) => String(a.id) === Astro.params.id);
+if (!album) return new Response('Album not found', { status: 404 });
 
 const initial = {
 	id: album.id,
@@ -19,6 +15,9 @@ const initial = {
 	coverIndex: Math.max(0, album.photos.findIndex((p) => p.id === album.cover.id)),
 	photos: album.photos.map((p) => ({ url: fullPhotoUrl(p), alt: p.alt })),
 };
+
+// Rendered on demand so the middleware can require an administrator before anything is sent.
+export const prerender = false;
 ---
 
 <AdminLayout title={`Edit ${album.title}`} heading="Edit album">

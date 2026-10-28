@@ -1,7 +1,11 @@
 ---
 import AccountLayout from '../../layouts/AccountLayout.astro';
 import PhotoTiles from '../../components/PhotoTiles.astro';
-import { fullName, likedPhotos, favoritePhotos } from '../../data/account';
+import { likedPhotos, favoritePhotos } from '../../data/account';
+
+export const prerender = false;
+const user = Astro.locals.user!;
+const fullName = `${user.firstName} ${user.lastName}`.trim();
 
 const stats = [
 	{ label: 'Liked photos', value: likedPhotos.length, href: '/account/liked' },

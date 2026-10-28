@@ -7,6 +7,9 @@ import { categories } from '../../../data/categories';
 // Category names for an album, in the album's own order. An id that no longer exists is skipped.
 const categoryName = new Map(categories.map((c) => [c.id, c.name]));
 const namesOf = (ids: string[]) => ids.map((id) => categoryName.get(id)).filter((name): name is string => Boolean(name));
+
+// Rendered on demand so the middleware can require an administrator before anything is sent.
+export const prerender = false;
 ---
 
 <AdminLayout title="Albums" heading="Albums">

@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import path from 'node:path';
 import { readFile, unlink } from 'node:fs/promises';
-import { PHOTOS_DIR, SAVED_NAME, adminApiEnabled, json, rejectCrossOrigin, rejectUntrustedHost } from '../../../../server/admin-api.ts';
+import { PHOTOS_DIR, SAVED_NAME, adminApiEnabled, json, rejectCrossOrigin, requireAdmin } from '../../../../server/admin-api.ts';
 
 // Serves an image saved by the Crawling page's download, so the album form can show it,
 // and deletes it again when the admin clears the Create new album page.
@@ -11,6 +11,8 @@ export const DELETE: APIRoute = async ({ params, request }) => {
 	if (!adminApiEnabled) return json({ error: 'This is disabled on this server.' }, 403);
 	const crossOrigin = rejectCrossOrigin(request);
 	if (crossOrigin) return crossOrigin;
+	const admin = requireAdmin(request);
+	if (admin instanceof Response) return admin;
 
 	// Only names this server generated can be deleted: never .gitkeep, never a path.
 	const name = params.name ?? '';
@@ -31,8 +33,8 @@ export const GET: APIRoute = async ({ params, request }) => {
 	const name = params.name ?? '';
 	// Only names this server generated are opened, so no path can reach outside the folder.
 	if (!adminApiEnabled || !SAVED_NAME.test(name)) return new Response('Not found', { status: 404 });
-	const untrusted = rejectUntrustedHost(request);
-	if (untrusted) return untrusted;
+	const admin = requireAdmin(request);
+	if (admin instanceof Response) return admin;
 
 	try {
 		const file = await readFile(path.join(PHOTOS_DIR, name));

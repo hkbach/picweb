@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import path from 'node:path';
 import { readdir, stat } from 'node:fs/promises';
-import { MAX_PHOTOS_IN_FOLDER, PHOTOS_DIR, PHOTOS_FOLDER_NAME, SAVED_NAME, adminApiEnabled, json, rejectUntrustedHost } from '../../../../server/admin-api.ts';
+import { MAX_PHOTOS_IN_FOLDER, PHOTOS_DIR, PHOTOS_FOLDER_NAME, SAVED_NAME, adminApiEnabled, json, requireAdmin } from '../../../../server/admin-api.ts';
 
 // Lists what is stored in the downloaded-photos folder. Read-only: deleting goes through the
 // per-photo DELETE in [name].ts, so a delete always names exactly the files it means.
@@ -9,8 +9,8 @@ export const prerender = false;
 
 export const GET: APIRoute = async ({ request }) => {
 	if (!adminApiEnabled) return json({ error: 'This is disabled on this server.' }, 403);
-	const untrusted = rejectUntrustedHost(request);
-	if (untrusted) return untrusted;
+	const admin = requireAdmin(request);
+	if (admin instanceof Response) return admin;
 
 	let entries: string[] = [];
 	try {
