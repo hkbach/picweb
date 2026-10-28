@@ -195,6 +195,22 @@ const MIGRATIONS: string[] = [
 	);
 	CREATE INDEX credit_claims_user ON credit_claims(user_id);
 	`,
+	`
+	-- Credits an administrator adds by hand get their own reason, so the history says what they are.
+	CREATE TABLE credit_ledger_new (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		amount INTEGER NOT NULL,
+		reason TEXT NOT NULL CHECK (reason IN ('signup', 'referral_signup', 'referral_albums', 'claim', 'claim_refund', 'admin_grant')),
+		source_user_id TEXT,
+		created_at TEXT NOT NULL,
+		claim_id INTEGER
+	);
+	INSERT INTO credit_ledger_new (id, user_id, amount, reason, source_user_id, created_at, claim_id) SELECT id, user_id, amount, reason, source_user_id, created_at, claim_id FROM credit_ledger;
+	DROP TABLE credit_ledger;
+	ALTER TABLE credit_ledger_new RENAME TO credit_ledger;
+	CREATE INDEX credit_ledger_user ON credit_ledger(user_id);
+	`,
 ];
 
 type Db = DatabaseSync;

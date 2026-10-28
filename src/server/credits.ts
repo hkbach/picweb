@@ -147,7 +147,7 @@ export interface ReferralSummary {
 	settings: CreditSettings;
 	/** The people who signed up through this user's link, oldest first: only how far each has got (no names). */
 	friends: Array<{ opened: number }>;
-	history: Array<{ amount: number; reason: 'signup' | 'referral_signup' | 'referral_albums' | 'claim' | 'claim_refund'; at: string }>;
+	history: Array<{ amount: number; reason: 'signup' | 'referral_signup' | 'referral_albums' | 'claim' | 'claim_refund' | 'admin_grant'; at: string }>;
 }
 
 export function referralSummary(userId: string): ReferralSummary {
