@@ -20,7 +20,7 @@ for (let i = 0; i < photos.length; i += PAGE_SIZE) batches.push(photos.slice(i, 
 	{
 		batches.map((batch, i) => (
 			<div class="batch" hidden={i > 0}>
-				{batch.map((photo) => <PhotoCard photo={photo} />)}
+				{batch.map((photo, n) => <PhotoCard photo={photo} priority={i === 0 && n < 3} />)}
 			</div>
 		))
 	}

@@ -55,6 +55,7 @@ npm run seed:demo                                          # development only: m
 | `ADMIN_PASSWORD` | Lets `create-admin` run without a prompt (automated setups only). |
 | `CRAWL_API_ENABLED=true` | Turns on the Crawling / Download / Downloaded-photos endpoints outside `astro dev` (off by default). |
 | `ADMIN_ALLOWED_HOSTS` | Comma-separated host names the admin endpoints answer to, for example `admin.example.com`. Outside `astro dev`, every admin endpoint refuses requests while this is unset. |
+| `SITE_URL` | The public address of the site, for example `https://picweb.example.com`. Used for canonical links, Open Graph addresses, `robots.txt` and `sitemap.xml`. **Set it in production**: it is deliberately not taken from the request there (a Host header can be forged), so without it those pages carry no canonical address and `/sitemap.xml` answers 404. Under `astro dev` the request's own address is used. |
 | `STORAGE_DRIVER` | Where uploaded pictures are kept. Unset = nothing is stored and the upload endpoints answer 501. `local` = `DATA_DIR/uploads`, served from `/api/media/` (development, or a single server). A cloud driver (S3, Azure Blob, ...) is added in `src/server/storage.ts`. |
 | `CRAWLER_CHROMIUM_SANDBOX=false` | Runs the crawler's browser without the Chromium sandbox, for hosts that cannot run it. A known risk: leave it unset everywhere else. |
 

@@ -1,0 +1,47 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Header from '../components/Header.astro';
+import LoginModal from '../components/LoginModal.astro';
+
+export const prerender = false;
+// A page that does not exist must answer 404 (not 200), and must stay out of search results.
+Astro.response.status = 404;
+---
+
+<Layout title="Page not found – Picweb" description="This page does not exist." noindex cookieNotice>
+	<Header />
+	<main class="container missing">
+		<h1>Page not found</h1>
+		<p>The page you are looking for does not exist or has moved.</p>
+		<p><a href="/" class="home">Go to the Homepage</a></p>
+	</main>
+	<LoginModal />
+</Layout>
+
+<style>
+	.missing {
+		padding-top: 96px;
+		padding-bottom: 96px;
+		text-align: center;
+	}
+	h1 {
+		margin: 0 0 12px;
+		font-size: 32px;
+	}
+	p {
+		margin: 0 0 16px;
+		color: var(--muted);
+	}
+	.home {
+		display: inline-block;
+		padding: 12px 24px;
+		border-radius: 8px;
+		background: var(--text);
+		color: #fff;
+		font-weight: 600;
+	}
+	.home:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 3px;
+	}
+</style>

@@ -1,22 +1,42 @@
 ---
 import '../styles/global.css';
 import CookieBanner from '../components/CookieBanner.astro';
+import { SITE_DESCRIPTION, SITE_NAME, siteUrl } from '../server/site.ts';
 
 interface Props {
 	title: string;
 	description?: string;
-	// 'guest' on public pages; account pages pass 'user'. There is no real session yet.
+	// 'guest' on public pages; account pages pass 'user'. The page itself corrects it once the server says who is there.
 	auth?: 'guest' | 'user';
-	// Keep a page out of search engines (used by admin pages).
+	// Keep a page out of search engines (admin and account pages): no canonical, no social tags, no robots "index".
 	noindex?: boolean;
+	// Path and query of the preferred address of this page, for example "/" or "/?category=abc". Search engines
+	// treat other addresses that show the same content (extra parameters, ...) as copies of it.
+	canonicalPath?: string;
+	// A picture that represents the page when it is shared (an absolute address, or a path on this site).
+	image?: string;
+	// Structured data (schema.org), written as JSON-LD.
+	jsonLd?: Record<string, unknown>;
+	// The cookie notice. On by default for indexable pages.
+	cookieNotice?: boolean;
 }
 
-const {
-	title,
-	description = 'Free high-resolution photos, shared by creators.',
-	auth = 'guest',
-	noindex = false,
-} = Astro.props;
+const { title, description = SITE_DESCRIPTION, auth = 'guest', noindex = false, canonicalPath, image, jsonLd, cookieNotice = !noindex } = Astro.props;
+
+const site = siteUrl(Astro.request);
+const absolute = (value: string | undefined) => {
+	if (!value) return undefined;
+	try {
+		const url = new URL(value, site ?? undefined);
+		return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : undefined;
+	} catch {
+		return undefined; // a path while the site address is unknown
+	}
+};
+const canonical = !noindex && site && canonicalPath !== undefined ? site + canonicalPath : undefined;
+const shareImage = noindex ? undefined : absolute(image);
+// "<" is escaped so the data can never close the script tag it is written into.
+const ld = jsonLd && !noindex ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : undefined;
 ---
 
 <!doctype html>
@@ -24,16 +44,36 @@ const {
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="description" content={description} />
-		{noindex && <meta name="robots" content="noindex, nofollow" />}
-		<meta name="generator" content={Astro.generator} />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<title>{title}</title>
+		<meta name="description" content={description} />
+		<meta name="theme-color" content="#ffffff" />
+		{noindex ? <meta name="robots" content="noindex, nofollow" /> : <meta name="robots" content="index, follow, max-image-preview:large" />}
+		{canonical && <link rel="canonical" href={canonical} />}
+		<link rel="icon" href="/favicon.ico" sizes="32x32" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		{
+			!noindex && (
+				<>
+					<meta property="og:site_name" content={SITE_NAME} />
+					<meta property="og:type" content="website" />
+					<meta property="og:locale" content="en_US" />
+					<meta property="og:title" content={title} />
+					<meta property="og:description" content={description} />
+					{canonical && <meta property="og:url" content={canonical} />}
+					{shareImage && <meta property="og:image" content={shareImage} />}
+					<meta name="twitter:card" content={shareImage ? 'summary_large_image' : 'summary'} />
+					<meta name="twitter:title" content={title} />
+					<meta name="twitter:description" content={description} />
+					{shareImage && <meta name="twitter:image" content={shareImage} />}
+				</>
+			)
+		}
+		{ld && <script type="application/ld+json" set:html={ld} />}
 	</head>
 	<body>
 		<slot />
 		{/* Admin pages are noindex and internal: visitors never see the notice there. */}
-		{!noindex && <CookieBanner />}
+		{cookieNotice && <CookieBanner />}
 		<script>
 			import '../scripts/session';
 			import '../scripts/reactions';

@@ -9,6 +9,7 @@ import LoginModal from '../components/LoginModal.astro';
 import BackToTop from '../components/BackToTop.astro';
 import AlbumModal from '../components/AlbumModal.astro';
 import { listAlbumCovers, listCategories, listPhotos } from '../server/repo.ts';
+import { SITE_DESCRIPTION, SITE_NAME, siteUrl } from '../server/site.ts';
 
 // Rendered on demand: what is shown comes from the database (albums, photos and categories an administrator manages).
 export const prerender = false;
@@ -17,10 +18,31 @@ const categories = listCategories();
 const selected = categories.find((c) => c.id === Astro.url.searchParams.get('category')) ?? categories[0];
 // The grid shows one cover per album of that category; the popup still needs every photo of every album.
 const covers = listAlbumCovers(selected?.id);
-const photos = listPhotos();
+// The popup only opens albums shown on this page, so only their photos are sent (a smaller, faster page).
+const shown = new Set(covers.map((c) => c.album));
+const photos = listPhotos().filter((p) => shown.has(p.album));
+
+// ---- search engines
+// The first category IS the Homepage, so its own address is just "/". Another valid category has its own address,
+// title and description. Anything else (an unknown category, ?q=, ...) is a copy of the Homepage.
+const isFirst = !selected || selected.id === categories[0].id;
+const canonicalPath = isFirst ? '/' : `/?category=${encodeURIComponent(selected.id)}`;
+const title = isFirst ? `${SITE_NAME} – Free high-resolution photos` : `${selected.name} photos – ${SITE_NAME}`;
+const description = isFirst ? SITE_DESCRIPTION : `Browse ${selected.name} albums on ${SITE_NAME}: free high-resolution photos shared by creators.`;
+// The address a visitor was sent to after a login was required is not a page worth indexing.
+const noindex = Astro.url.searchParams.has('login');
+const site = siteUrl(Astro.request);
+const jsonLd = {
+	'@context': 'https://schema.org',
+	'@type': isFirst ? 'WebSite' : 'CollectionPage',
+	name: isFirst ? SITE_NAME : title,
+	description,
+	...(site ? { url: site + canonicalPath } : {}),
+	...(isFirst ? {} : { isPartOf: { '@type': 'WebSite', name: SITE_NAME, ...(site ? { url: site + '/' } : {}) } }),
+};
 ---
 
-<Layout title="Picweb – Free high-resolution photos">
+<Layout title={title} description={description} canonicalPath={canonicalPath} image={covers[0]?.thumb} jsonLd={jsonLd} noindex={noindex}>
 	<Header />
 	<main>
 		<Hero />

@@ -3,19 +3,22 @@ import type { Photo } from '../server/repo.ts';
 
 interface Props {
 	photo: Photo;
+	/** The first pictures on the page: loaded straight away (they are what the page is first judged on). */
+	priority?: boolean;
 }
 
-const { photo } = Astro.props;
+const { photo, priority = false } = Astro.props;
 ---
 
 <figure class="card">
 	<a href="#" class="media" data-photo-id={photo.id} aria-label={`Open album: ${photo.albumTitle}`}>
 		<img
 			src={photo.thumb}
-			alt={photo.alt}
+			alt={photo.albumTitle}
 			width={photo.width}
 			height={photo.height}
-			loading="lazy"
+			loading={priority ? 'eager' : 'lazy'}
+			fetchpriority={priority ? 'high' : undefined}
 			decoding="async"
 		/>
 		<div class="overlay">
