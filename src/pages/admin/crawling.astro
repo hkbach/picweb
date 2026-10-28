@@ -7,6 +7,22 @@ export const prerender = false;
 
 <AdminLayout title="Crawling" heading="Crawling">
 	<form class="crawl" id="crawl-form" novalidate>
+		<fieldset class="source">
+			<legend>Crawl from</legend>
+			<label class="choice">
+				<input type="radio" name="source" value="web" checked />
+				<span>Web</span>
+			</label>
+			<label class="choice">
+				<input type="radio" name="source" value="facebook" />
+				<span>Facebook</span>
+			</label>
+		</fieldset>
+		<p class="source-note" id="source-note" hidden>
+			For a link to ONE public Facebook post. Picweb does not sign in to Facebook, so private posts and groups cannot be read. Pictures come
+			as Facebook shows them (usually reduced in size), and their addresses stop working after a while, so keep them with “Download and
+			create new album”. Facebook’s terms limit automated collection: only crawl posts you have the right to use.
+		</p>
 		<div class="field">
 			<label for="target-url">Target URL</label>
 			<div class="row">
@@ -110,7 +126,23 @@ export const prerender = false;
 		title: string;
 		images: FoundImage[];
 		blockedRequests: number;
+		source?: 'web' | 'facebook';
 	}
+
+	// ---- where to crawl: any web page, or one public Facebook post
+	const sourceInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="source"]'));
+	const sourceNote = document.querySelector<HTMLElement>('#source-note')!;
+	const selectedSource = () => (sourceInputs.find((r) => r.checked)?.value === 'facebook' ? 'facebook' : 'web') as 'web' | 'facebook';
+	// The kind of crawl the pictures on screen came from (the buttons below the results depend on it).
+	let shownSource: 'web' | 'facebook' = 'web';
+	const isFacebookUrl = (value: string) => {
+		try {
+			return /(^|\.)(facebook\.com|fb\.com)$/i.test(new URL(value).hostname);
+		} catch {
+			return false;
+		}
+	};
+	const PLACEHOLDERS = { web: 'https://example.com', facebook: 'https://www.facebook.com/share/p/…' };
 
 	const isHttpUrl = (value: string) => {
 		try {
@@ -131,22 +163,38 @@ export const prerender = false;
 		status.classList.toggle('is-error', isError);
 	};
 
-	const check = () => {
-		const value = input.value.trim();
-		showFieldError(value !== '' && !isHttpUrl(value) ? 'Enter a full URL starting with http:// or https://' : '');
+	// The message under the field for what is typed, or '' when it is fine (or empty).
+	const problemWith = (value: string) => {
+		if (value === '') return '';
+		if (!isHttpUrl(value)) return 'Enter a full URL starting with http:// or https://';
+		if (selectedSource() === 'facebook' && !isFacebookUrl(value)) return 'Enter a link to a post on facebook.com.';
+		return '';
 	};
+	const check = () => showFieldError(problemWith(input.value.trim()));
 	input.addEventListener('input', check);
 	input.addEventListener('blur', check);
+	for (const radio of sourceInputs) {
+		radio.addEventListener('change', () => {
+			const source = selectedSource();
+			input.placeholder = PLACEHOLDERS[source];
+			sourceNote.hidden = source !== 'facebook';
+			check();
+		});
+	}
 
 	resultsTitle.tabIndex = -1; // lets focus land here when the last thumbnail is removed
 	resultsTitle.setAttribute('aria-live', 'polite');
 	const updateTitle = () => {
 		const count = list.children.length;
 		resultsTitle.textContent = count === 0 ? 'No images left' : `${count} image${count === 1 ? '' : 's'} found`;
-		createButton.hidden = count === 0;
+		// Facebook picture addresses expire, so an album that only stores the links would soon show nothing:
+		// pictures from Facebook can only be kept by downloading them.
+		createButton.hidden = count === 0 || shownSource === 'facebook';
 		downloadButton.hidden = count === 0;
-		albumNote.textContent =
-			count > MAX_ALBUM_PHOTOS ? `An album holds up to ${MAX_ALBUM_PHOTOS} photos, so only the first ${MAX_ALBUM_PHOTOS} will be used.` : '';
+		const notes: string[] = [];
+		if (shownSource === 'facebook') notes.push('Facebook picture addresses stop working after a while, so use “Download and create new album” to keep copies.');
+		if (count > MAX_ALBUM_PHOTOS) notes.push(`An album holds up to ${MAX_ALBUM_PHOTOS} photos, so only the first ${MAX_ALBUM_PHOTOS} will be used.`);
+		albumNote.textContent = notes.join(' ');
 	};
 
 	createButton.addEventListener('click', () => {
@@ -448,8 +496,10 @@ export const prerender = false;
 	form.addEventListener('submit', async (e) => {
 		e.preventDefault();
 		const url = input.value.trim();
-		if (!isHttpUrl(url)) {
-			showFieldError('Enter a full URL starting with http:// or https://');
+		const source = selectedSource();
+		const problem = url === '' ? 'Enter a full URL starting with http:// or https://' : problemWith(url);
+		if (problem) {
+			showFieldError(problem);
 			input.focus();
 			return;
 		}
@@ -464,11 +514,12 @@ export const prerender = false;
 			const response = await fetch('/api/admin/crawl', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ url }),
+				body: JSON.stringify({ url, source }),
 				signal: AbortSignal.timeout(90_000),
 			});
 			const data = await response.json().catch(() => null);
 			if (!response.ok) throw new Error(data?.error ?? `Request failed (${response.status}).`);
+			shownSource = source;
 			render(data as CrawlResponse);
 		} catch (err) {
 			const timedOut = err instanceof DOMException && err.name === 'TimeoutError';
@@ -496,6 +547,77 @@ export const prerender = false;
 	.row {
 		display: flex;
 		gap: 12px;
+	}
+	/* Web / Facebook: two choices side by side, the chosen one filled. */
+	.source {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 8px 12px;
+		margin: 0 0 16px;
+		padding: 0;
+		border: 0;
+	}
+	.source legend {
+		float: left;
+		margin-right: 12px;
+		padding: 0;
+		font-size: 14px;
+		font-weight: 500;
+		line-height: 40px;
+	}
+	.choice {
+		position: relative;
+		display: inline-flex;
+		cursor: pointer;
+	}
+	/* The radio itself is hidden but stays focusable; the label text is what is shown. */
+	.choice input {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		opacity: 0;
+		cursor: pointer;
+	}
+	.choice span {
+		display: inline-flex;
+		align-items: center;
+		height: 40px;
+		padding: 0 20px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		font-size: 14px;
+		font-weight: 500;
+		transition: background 0.15s, color 0.15s, border-color 0.15s;
+	}
+	.choice:hover span {
+		border-color: var(--text);
+	}
+	.choice input:checked + span {
+		background: var(--text);
+		border-color: var(--text);
+		color: #fff;
+	}
+	.choice input:focus-visible + span {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.source-note {
+		max-width: 720px;
+		margin: 0 0 16px;
+		padding: 10px 14px;
+		border-radius: 8px;
+		background: var(--bg-soft);
+		font-size: 13px;
+		line-height: 1.5;
+	}
+	.source-note[hidden] {
+		display: none;
 	}
 	input {
 		flex: 1;

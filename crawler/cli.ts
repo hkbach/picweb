@@ -1,11 +1,12 @@
 import { crawlImages, type CrawlOptions } from './crawl-images.ts';
 
-const USAGE = `Usage: npm run crawl -- <url> [--max <n>] [--min-size <px>] [--timeout <ms>] [--allow-private]
+const USAGE = `Usage: npm run crawl -- <url> [--max <n>] [--min-size <px>] [--timeout <ms>] [--facebook] [--allow-private]
 
 Collects the images on a page with Playwright and prints the result as JSON.
   --max            maximum number of images (default 200)
   --min-size       skip images whose width or height is below this many pixels (default 400)
   --timeout        navigation timeout in ms (default 30000)
+  --facebook       the link is ONE public Facebook post: keep only that post's pictures (never signs in)
   --allow-private  allow localhost / private-network targets (testing only)`;
 
 const args = process.argv.slice(2);
@@ -32,6 +33,7 @@ options.maxImages = numberAfter('--max');
 options.minSize = numberAfter('--min-size');
 options.timeoutMs = numberAfter('--timeout');
 options.allowPrivate = args.includes('--allow-private');
+if (args.includes('--facebook')) options.source = 'facebook';
 for (const key of Object.keys(options) as Array<keyof CrawlOptions>) {
 	if (options[key] === undefined) delete options[key];
 }

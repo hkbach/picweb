@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { crawlImages, parseTargetUrl } from '../../../../crawler/crawl-images.ts';
+import { CrawlError, crawlImages, parseFacebookUrl, parseTargetUrl, type CrawlSource } from '../../../../crawler/crawl-images.ts';
 import { adminApiEnabled, json, rejectUnlessSameOriginJson, requireAdmin } from '../../../server/admin-api.ts';
 
 // Runs on the server on demand; the rest of the site stays static.
@@ -21,10 +21,15 @@ export const POST: APIRoute = async ({ request }) => {
 	if (rejected) return rejected;
 
 	let target: string;
+	let source: CrawlSource = 'web';
 	try {
 		const body = await request.json();
 		target = typeof body?.url === 'string' ? body.url : '';
-		parseTargetUrl(target); // rejects non-http(s), malformed URLs and embedded credentials
+		if (body?.source !== undefined && body.source !== 'web' && body.source !== 'facebook') return json({ error: 'Unknown source.' }, 400);
+		source = body?.source === 'facebook' ? 'facebook' : 'web';
+		// Rejects non-http(s), malformed URLs and embedded credentials (and, for Facebook, any other site).
+		if (source === 'facebook') parseFacebookUrl(target);
+		else parseTargetUrl(target);
 	} catch (error) {
 		return json({ error: error instanceof Error ? error.message : 'Invalid request.' }, 400);
 	}
@@ -32,11 +37,12 @@ export const POST: APIRoute = async ({ request }) => {
 	if (busy) return json({ error: 'Another crawl is already running. Try again in a moment.' }, 429);
 	busy = true;
 	try {
-		return json(await crawlImages(target, LIMITS));
+		return json(await crawlImages(target, { ...LIMITS, source }));
 	} catch (error) {
 		// The first line is the useful part; Playwright appends a long call log.
 		const message = error instanceof Error ? error.message.split('\n')[0] : 'Crawl failed.';
-		return json({ error: `Crawl failed: ${message}` }, 502);
+		// Our own messages (Facebook asks for a login, ...) are shown as they are.
+		return json({ error: error instanceof CrawlError ? message : `Crawl failed: ${message}` }, 502);
 	} finally {
 		busy = false;
 	}

@@ -67,6 +67,8 @@ How access works:
 - Use HTTPS in production (the session cookie is `Secure` there).
 - Not done yet: Google / X / Facebook login (the buttons are display only), an email telling a user that an administrator changed their password, and a cloud storage driver.
 
+Admin → Crawling can crawl **Web** (any page) or **Facebook** (one public post, pasted as a link such as `https://www.facebook.com/share/p/...`). The Facebook mode never signs in and sends no cookie or account detail, so private posts and groups cannot be read; it keeps only the post's own pictures (one copy of each, the largest Facebook shows, usually reduced in size). Facebook picture addresses expire, so they can only be kept with "Download and create new album". Facebook's terms limit automated collection and the pictures belong to their authors: only use posts you have the right to use. Command line: `npm run crawl -- <url> --facebook`.
+
 The crawler's browser sends all its traffic through a local proxy (`crawler/egress-proxy.ts`). The proxy refuses connections to private and reserved addresses.
 
 ## 👀 Want to learn more?

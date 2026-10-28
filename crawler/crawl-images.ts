@@ -13,8 +13,19 @@ export interface CrawlOptions {
 	totalTimeoutMs?: number;
 	/** Allow loopback / private-network targets. Off by default; only for local testing. */
 	allowPrivate?: boolean;
+	/**
+	 * "web" collects every picture on any page. "facebook" is for ONE public Facebook post: only the post's own
+	 * pictures are kept (one copy of each, the largest shown), and a post that Facebook only shows to signed-in
+	 * people is reported as such. The crawler never signs in to Facebook or sends any cookie or account detail.
+	 */
+	source?: CrawlSource;
 	userAgent?: string;
 }
+
+export type CrawlSource = 'web' | 'facebook';
+
+/** A failure whose message is safe to show to the administrator. */
+export class CrawlError extends Error {}
 
 export interface FoundImage {
 	url: string;
@@ -32,6 +43,7 @@ export interface CrawlResult {
 	images: FoundImage[];
 	/** Requests refused because they pointed at a blocked address or scheme. */
 	blockedRequests: number;
+	source: CrawlSource;
 }
 
 // What the page hands back is data from an untrusted site: it is checked and capped before use.
@@ -61,8 +73,44 @@ const DEFAULTS = {
 	timeoutMs: 30_000,
 	totalTimeoutMs: 90_000,
 	allowPrivate: false,
+	source: 'web' as CrawlSource,
+	// Honest about what it is: the crawler does not pretend to be a person's browser.
 	userAgent: 'PicwebCrawler/0.1',
 };
+
+// Facebook's own addresses (a share link such as facebook.com/share/p/... redirects to the post on facebook.com).
+export const isFacebookHost = (hostname: string) => /(^|\.)(facebook\.com|fb\.com)$/i.test(hostname);
+/** Where Facebook keeps the pictures people post (static.* holds its own icons and emoji, not posts). */
+const isFacebookPicture = (hostname: string) => /(^|\.)fbcdn\.net$/i.test(hostname) && !/^static\./i.test(hostname);
+
+/** Facebook's own sign-in, security-check and account-recovery pages: what a post that needs a login turns into. */
+export const isFacebookLoginPath = (pathname: string) => /^\/(login|checkpoint|recover)(\/|\.php|$)/i.test(pathname);
+
+export function parseFacebookUrl(input: string): URL {
+	const url = parseTargetUrl(input);
+	if (!isFacebookHost(url.hostname)) throw new CrawlError('That is not a Facebook address. Use a link to a post on facebook.com.');
+	return url;
+}
+
+// Facebook shows the same picture at several sizes (and again in the page's preview tags). They share one file
+// name, so keep the largest of each, in the order they first appeared.
+export function facebookPictures(items: FoundImage[]): FoundImage[] {
+	const best = new Map<string, FoundImage>();
+	for (const item of items) {
+		let name: string;
+		try {
+			const url = new URL(item.url);
+			if (!isFacebookPicture(url.hostname)) continue;
+			name = url.pathname.split('/').pop() ?? '';
+		} catch {
+			continue;
+		}
+		if (!name) continue;
+		const known = best.get(name);
+		if (!known || item.width * item.height > known.width * known.height) best.set(name, known ? { ...item } : item);
+	}
+	return [...best.values()];
+}
 
 export function parseTargetUrl(input: string): URL {
 	let url: URL;
@@ -80,7 +128,8 @@ export function parseTargetUrl(input: string): URL {
 
 export async function crawlImages(targetUrl: string, options: CrawlOptions = {}): Promise<CrawlResult> {
 	const opts = { ...DEFAULTS, ...options };
-	const url = parseTargetUrl(targetUrl);
+	const facebook = opts.source === 'facebook';
+	const url = facebook ? parseFacebookUrl(targetUrl) : parseTargetUrl(targetUrl);
 	if (!opts.allowPrivate) await assertPublicHost(url.hostname);
 
 	// All the browser's traffic goes through a local proxy that checks the address it actually connects to
@@ -165,8 +214,18 @@ export async function crawlImages(targetUrl: string, options: CrawlOptions = {})
 		// Best effort: many sites keep connections open forever, so a timeout here is fine.
 		await page.waitForLoadState('networkidle', { timeout: Math.min(opts.timeoutMs, 10_000) }).catch(() => {});
 
+		if (facebook) {
+			// A page that belongs to Facebook's own sign-in is not the post: say so rather than return its logo.
+			const finalUrl = new URL(page.url());
+			if (!isFacebookHost(finalUrl.hostname)) throw new CrawlError('The link leads away from Facebook, so it was not crawled.');
+			if (isFacebookLoginPath(finalUrl.pathname)) {
+				throw new CrawlError('Facebook only shows this post to people who are signed in. Picweb does not sign in to Facebook, so private posts and groups cannot be crawled.');
+			}
+		}
+
 		// Scroll down in steps so lazy-loaded images are requested. Bounded in steps and time.
-		await page.evaluate(async () => {
+		// (Not on Facebook: scrolling a post loads other posts and comments, whose pictures are not this post's.)
+		if (!facebook) await page.evaluate(async () => {
 			const deadline = Date.now() + 8000;
 			for (let i = 0; i < 40 && Date.now() < deadline; i++) {
 				const before = window.scrollY;
@@ -240,7 +299,7 @@ export async function crawlImages(targetUrl: string, options: CrawlOptions = {})
 		// An image whose size still cannot be determined cannot be shown to meet the minimum, so it is dropped.
 		const seen = new Set<string>();
 		const images: FoundImage[] = [];
-		for (const item of raw) {
+		for (const item of facebook ? facebookPictures(raw) : raw) {
 			if (images.length >= opts.maxImages) break;
 			if (!/^https?:\/\//i.test(item.url) || seen.has(item.url)) continue;
 			// Whoever shows these results may load the images, so never return URLs that point at
@@ -254,9 +313,10 @@ export async function crawlImages(targetUrl: string, options: CrawlOptions = {})
 		return {
 			requestedUrl: url.href,
 			finalUrl: page.url(),
-			title: (await page.title()).slice(0, MAX_ALT_LENGTH),
+			title: (await page.title()).replace(/\s*\|\s*Facebook\s*$/i, '').slice(0, MAX_ALT_LENGTH),
 			images,
 			blockedRequests: blockedRequests + proxy.blocked(),
+			source: opts.source,
 		};
 	} catch (error) {
 		if (timedOut) throw new Error('The page took too long and the crawl was stopped.');
