@@ -71,6 +71,7 @@ export const prerender = false;
 							</li>
 						))}
 					</ol>
+						<div id="sources-pager"></div>
 				</>
 			)
 		}
@@ -80,6 +81,14 @@ export const prerender = false;
 
 	<AlbumForms mode="edit" type={album.type} album={initial} />
 </AdminLayout>
+
+<script>
+	import { paginateElements } from '../../../../scripts/pager';
+
+	const list = document.querySelector<HTMLElement>('.source-list');
+	const mount = document.querySelector<HTMLElement>('#sources-pager');
+	if (list && mount) paginateElements(mount, () => [...list.querySelectorAll<HTMLElement>('li')], 'Crawl history');
+</script>
 
 <style>
 	.sources {

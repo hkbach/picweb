@@ -4,16 +4,19 @@ import type { Photo } from '../server/repo.ts';
 interface Props {
 	photos: Photo[];
 	empty?: string;
+	/** Cut the tiles into pages (with the shared Rows per page choice). Off for the short previews on the dashboard. */
+	paginate?: boolean;
 }
 
-const { photos, empty = 'Nothing here yet.' } = Astro.props;
+const { photos, empty = 'Nothing here yet.', paginate = false } = Astro.props;
 ---
 
 {
 	photos.length === 0 ? (
 		<p class="empty">{empty}</p>
 	) : (
-		<ul class="tiles">
+		<>
+		<ul class="tiles" data-paginate={paginate ? 'true' : undefined}>
 			{photos.map((p) => (
 				<li>
 					<a href="#" class="tile" data-photo-id={p.id} data-no-save aria-label={`Open album: ${p.alt}`}>
@@ -22,8 +25,19 @@ const { photos, empty = 'Nothing here yet.' } = Astro.props;
 				</li>
 			))}
 		</ul>
+		{paginate && <div class="tiles-pager" />}
+		</>
 	)
 }
+
+<script>
+	import { paginateElements } from '../scripts/pager';
+
+	document.querySelectorAll<HTMLElement>('ul.tiles[data-paginate]').forEach((list) => {
+		const mount = list.nextElementSibling as HTMLElement | null;
+		if (mount) paginateElements(mount, () => [...list.querySelectorAll<HTMLElement>('li')], 'Photos');
+	});
+</script>
 
 <style>
 	.tiles {

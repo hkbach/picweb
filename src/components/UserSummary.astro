@@ -53,11 +53,14 @@
 				</thead>
 				<tbody data-table-body></tbody>
 			</table>
+			<div data-table-pager></div>
 		</div>
 	</figure>
 </section>
 
 <script>
+	import { createPager } from '../scripts/pager';
+
 	interface UserRow {
 		id: string;
 		status: 'active' | 'deactivated';
@@ -302,9 +305,12 @@
 		if (activeIndex !== null) showPoint(Math.min(activeIndex, points.length - 1));
 	};
 
+	const tablePager = createPager(root.querySelector<HTMLElement>('[data-table-pager]')!, () => renderTable(), 'New registrations per day');
 	const renderTable = () => {
 		tableBody.replaceChildren();
-		for (const p of [...points].reverse()) {
+		const days = [...points].reverse();
+		tablePager.setTotal(days.length);
+		for (const p of tablePager.slice(days)) {
 			const tr = document.createElement('tr');
 			const date = document.createElement('th');
 			date.scope = 'row';
@@ -340,6 +346,7 @@
 			rangeButtons.forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
 			activeIndex = null;
 			hidePoint();
+			tablePager.goTo(1);
 			render();
 		}),
 	);

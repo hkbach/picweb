@@ -40,9 +40,7 @@ export const prerender = false;
 
 	<ul class="grid" id="grid"></ul>
 
-	<div class="more" id="more-wrap" hidden>
-		<button type="button" class="btn ghost" id="more">Show more</button>
-	</div>
+	<div id="cloud-pager"></div>
 
 	<p class="empty" id="empty" hidden></p>
 	<button type="button" class="btn ghost" id="retry" hidden>Try again</button>
@@ -76,6 +74,8 @@ export const prerender = false;
 </AdminLayout>
 
 <script>
+	import { createPager } from '../../scripts/pager';
+
 	const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 	const grid = $<HTMLUListElement>('#grid');
 	const summary = $('#summary');
@@ -87,8 +87,10 @@ export const prerender = false;
 	const deleteSelected = $<HTMLButtonElement>('#delete-selected');
 	const refreshButton = $<HTMLButtonElement>('#refresh');
 	const retryButton = $<HTMLButtonElement>('#retry');
-	const moreWrap = $('#more-wrap');
-	const moreButton = $<HTMLButtonElement>('#more');
+	const pager = createPager($('#cloud-pager'), () => {
+		drawGrid();
+		drawToolbar();
+	}, 'Cloud photos');
 	const statusLine = $('#status');
 	const failuresTitle = $('#failures-title');
 	const failuresList = $<HTMLUListElement>('#failures');
@@ -112,12 +114,10 @@ export const prerender = false;
 		albums?: number;
 	}
 
-	const PAGE = 60; // cards drawn at a time: thousands of pictures are listed, not all loaded at once
 	const CHUNK = 25; // pictures per delete request
 	let photos: CloudPhoto[] = [];
 	let others = 0;
 	let truncated = false;
-	let shown = PAGE;
 	let busy = false;
 	let loaded = false;
 	const selected = new Set<string>();
@@ -167,7 +167,9 @@ export const prerender = false;
 	// Everything below the toolbar is drawn from `photos`, `selected`, the sort and `shown`.
 	const drawGrid = () => {
 		grid.replaceChildren();
-		for (const photo of sorted().slice(0, shown)) {
+		const list = sorted();
+		pager.setTotal(list.length);
+		for (const photo of pager.slice(list)) {
 			const card = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
 			card.dataset.key = photo.key;
 			const check = card.querySelector<HTMLInputElement>('.check')!;
@@ -201,8 +203,6 @@ export const prerender = false;
 			card.querySelector<HTMLElement>('.sub')!.textContent = `${when.format(new Date(photo.modified))} · ${usedText(photo)}`;
 			grid.append(card);
 		}
-		moreWrap.hidden = shown >= photos.length;
-		moreButton.textContent = `Show more (${photos.length - shown} left)`;
 	};
 
 	const drawToolbar = () => {
@@ -218,7 +218,6 @@ export const prerender = false;
 		deleteSelected.disabled = busy || count === 0;
 		refreshButton.disabled = busy;
 		sortSelect.disabled = busy;
-		moreButton.disabled = busy;
 	};
 
 	const drawSummary = () => {
@@ -256,7 +255,6 @@ export const prerender = false;
 			others = data.others;
 			truncated = data.truncated;
 			for (const key of [...selected]) if (!photos.some((p) => p.key === key)) selected.delete(key);
-			shown = Math.max(PAGE, Math.min(shown, photos.length));
 			loaded = true;
 			busy = false;
 			redraw();
@@ -266,7 +264,7 @@ export const prerender = false;
 			busy = false;
 			loaded = true;
 			grid.replaceChildren();
-			moreWrap.hidden = true;
+			pager.setTotal(0);
 			summary.hidden = true;
 			toolbar.hidden = true;
 			empty.hidden = false;
@@ -358,13 +356,8 @@ export const prerender = false;
 		drawToolbar();
 	});
 	sortSelect.addEventListener('change', () => {
-		shown = PAGE;
+		pager.goTo(1);
 		drawGrid();
-	});
-	moreButton.addEventListener('click', () => {
-		shown += PAGE;
-		drawGrid();
-		drawToolbar();
 	});
 	refreshButton.addEventListener('click', async () => {
 		showFailures('', []);
@@ -392,7 +385,6 @@ export const prerender = false;
 	.toolbar[hidden],
 	.empty[hidden],
 	.btn[hidden],
-	.more[hidden],
 	.failures[hidden],
 	.failures-title[hidden] {
 		display: none;
@@ -568,11 +560,6 @@ export const prerender = false;
 		margin: 0;
 		font-size: 12px;
 		color: var(--muted);
-	}
-	.more {
-		display: flex;
-		justify-content: center;
-		margin: 20px 0;
 	}
 
 	.empty {

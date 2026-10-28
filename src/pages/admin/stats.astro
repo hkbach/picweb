@@ -76,10 +76,7 @@ export const prerender = false;
 						<tbody id="stats-rows" />
 					</table>
 				</div>
-				<p class="shown" id="shown" aria-live="polite" />
-				<div class="more" id="more-wrap" hidden>
-					<button type="button" class="btn ghost" id="more">Show more</button>
-				</div>
+				<div id="stats-pager" />
 			</>
 		)
 	}
@@ -88,6 +85,8 @@ export const prerender = false;
 </AdminLayout>
 
 <script>
+	import { createPager } from '../../scripts/pager';
+
 	interface Stat {
 		id: number;
 		thumb: string;
@@ -105,14 +104,10 @@ export const prerender = false;
 	const body = document.querySelector<HTMLElement>('#stats-rows');
 	if (dataEl && body) {
 		const stats: Stat[] = JSON.parse(dataEl.textContent ?? '[]');
-		const PAGE = 100; // rows drawn at a time
-		const shownText = document.querySelector<HTMLElement>('#shown')!;
-		const moreWrap = document.querySelector<HTMLElement>('#more-wrap')!;
-		const moreButton = document.querySelector<HTMLButtonElement>('#more')!;
+		const pager = createPager(document.querySelector<HTMLElement>('#stats-pager')!, () => draw(), 'Photo stats');
 		const number = new Intl.NumberFormat('en-US');
 		let column: Column = 'likes';
 		let direction: 'asc' | 'desc' = 'desc';
-		let shown = PAGE;
 
 		// The chosen column first; ties keep a sensible order (likes, then views, then favorites, most first, then oldest photo).
 		const order = (): Stat[] => {
@@ -122,8 +117,9 @@ export const prerender = false;
 
 		const draw = () => {
 			const rows = order();
+			pager.setTotal(rows.length);
 			body.replaceChildren(
-				...rows.slice(0, shown).map((s) => {
+				...pager.slice(rows).map((s) => {
 					const tr = document.createElement('tr');
 					tr.dataset.photoId = String(s.id);
 
@@ -164,9 +160,6 @@ export const prerender = false;
 					return tr;
 				}),
 			);
-			shownText.textContent = `Showing ${number.format(Math.min(shown, stats.length))} of ${number.format(stats.length)} photos`;
-			moreWrap.hidden = shown >= stats.length;
-			moreButton.textContent = `Show more (${number.format(stats.length - shown)} left)`;
 			for (const th of document.querySelectorAll<HTMLElement>('th[data-column]')) {
 				const on = th.dataset.column === column;
 				th.setAttribute('aria-sort', on ? (direction === 'asc' ? 'ascending' : 'descending') : 'none');
@@ -183,15 +176,9 @@ export const prerender = false;
 					column = next;
 					direction = 'desc';
 				}
-				shown = PAGE;
+				pager.goTo(1);
 				draw();
 			});
-		});
-		moreButton.addEventListener('click', () => {
-			shown += PAGE;
-			draw();
-			// keep the keyboard on the button when it is still there, otherwise on the table
-			if (!moreWrap.hidden) moreButton.focus();
 		});
 		draw();
 	}
@@ -338,40 +325,6 @@ export const prerender = false;
 		font-size: 9px;
 	}
 
-	.shown {
-		max-width: 1040px;
-		margin: 10px 0 0;
-		font-size: 13px;
-		color: var(--muted);
-	}
-	.more {
-		display: flex;
-		justify-content: center;
-		margin: 12px 0 20px;
-	}
-	.more[hidden] {
-		display: none;
-	}
-	.btn {
-		height: 40px;
-		padding: 0 18px;
-		border: 0;
-		border-radius: 999px;
-		background: none;
-		color: var(--muted);
-		font: inherit;
-		font-size: 14px;
-		font-weight: 600;
-		cursor: pointer;
-	}
-	.btn:hover {
-		background: var(--bg-soft);
-		color: var(--text);
-	}
-	.btn:focus-visible {
-		outline: 2px solid var(--text);
-		outline-offset: 2px;
-	}
 
 	@media (max-width: 600px) {
 		th,

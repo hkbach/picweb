@@ -41,6 +41,10 @@
 	</div>
 
 	<div class="pager">
+		<div class="pg-size">
+			<label for="users-page-size">Rows per page</label>
+			<select id="users-page-size"></select>
+		</div>
 		<p class="range" id="users-range" aria-live="polite"></p>
 		<div class="pager-buttons">
 			<button type="button" class="btn ghost" id="page-prev">Previous</button>
@@ -169,6 +173,7 @@
 
 <script>
 	import { saveUserChanges } from '../scripts/users-api';
+	import { PAGE_SIZES, readPageSize, savePageSize } from '../scripts/pager';
 
 	interface UserRow {
 		id: string;
@@ -179,7 +184,7 @@
 		registeredAt: string;
 	}
 
-	const PAGE_SIZE = 10;
+	let PAGE_SIZE = readPageSize();
 	const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 	const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -408,6 +413,17 @@
 	});
 	nextButton.addEventListener('click', () => {
 		view.page++;
+		render();
+	});
+	// Rows per page: 5, 10 or 20, remembered for every list. The page that holds the same first row stays on screen.
+	const sizeSelect = $<HTMLSelectElement>('#users-page-size');
+	for (const n of PAGE_SIZES) sizeSelect.append(new Option(String(n), String(n)));
+	sizeSelect.value = String(PAGE_SIZE);
+	sizeSelect.addEventListener('change', () => {
+		const first = (view.page - 1) * PAGE_SIZE;
+		PAGE_SIZE = Number(sizeSelect.value);
+		savePageSize(PAGE_SIZE);
+		view.page = Math.floor(first / PAGE_SIZE) + 1;
 		render();
 	});
 

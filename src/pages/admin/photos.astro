@@ -30,6 +30,7 @@ export const prerender = false;
 	<p class="status" id="status" role="status"></p>
 
 	<ul class="grid" id="grid"></ul>
+	<div id="photos-pager"></div>
 
 	<p class="empty" id="empty" hidden></p>
 	<button type="button" class="btn ghost" id="retry" hidden>Try again</button>
@@ -62,6 +63,7 @@ export const prerender = false;
 </AdminLayout>
 
 <script>
+	import { createPager } from '../../scripts/pager';
 	import { deleteDownloadedPhotos, listDownloadedPhotos, type StoredPhoto } from '../../scripts/photos-api';
 	import { forgetDownloadedNames } from '../../scripts/album-draft';
 
@@ -80,6 +82,7 @@ export const prerender = false;
 	const template = $<HTMLTemplateElement>('#card-template');
 	const dialog = $<HTMLDialogElement>('#confirm-dialog');
 
+	const pager = createPager($<HTMLElement>('#photos-pager'), () => render(), 'Downloaded photos');
 	let photos: StoredPhoto[] = [];
 	let others = 0;
 	let maxFiles = 0;
@@ -111,10 +114,12 @@ export const prerender = false;
 			summary.hidden = false;
 			toolbar.hidden = true;
 			empty.hidden = true;
+			pager.setTotal(0);
 			return;
 		}
 		grid.replaceChildren();
-		for (const photo of photos) {
+		pager.setTotal(photos.length);
+		for (const photo of pager.slice(photos)) {
 			const card = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
 			const check = card.querySelector<HTMLInputElement>('.check')!;
 			check.checked = selected.has(photo.name);
@@ -245,10 +250,10 @@ export const prerender = false;
 	});
 
 	deleteAll.addEventListener('click', async () => {
-		// Exactly what is on screen: a photo that arrived after this list was loaded is not deleted unseen.
+		// Exactly what is in the list (every page): a photo that arrived after this list was loaded is not deleted unseen.
 		const names = photos.map((p) => p.name);
 		if (names.length === 0) return;
-		const text = `All ${plural(names.length, 'photo')} shown here will be permanently deleted from the ${folder} folder.`;
+		const text = `All ${plural(names.length, 'photo')} in the list (on every page) will be permanently deleted from the ${folder} folder.`;
 		if (!(await confirmDelete(names.length === 1 ? 'Delete the photo?' : `Delete all ${names.length} photos?`, text))) return;
 		await remove(names);
 	});

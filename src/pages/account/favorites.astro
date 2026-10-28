@@ -8,5 +8,5 @@ const favoritePhotos = listFavorites(Astro.locals.user!.id);
 ---
 
 <AccountLayout title="Favorites" heading="Favorites">
-	<PhotoTiles photos={favoritePhotos} empty="You haven't added any favorites yet." />
+	<PhotoTiles paginate photos={favoritePhotos} empty="You haven't added any favorites yet." />
 </AccountLayout>

@@ -92,6 +92,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 				</tbody>
 			</table>
 		</div>
+		<div id="claims-pager"></div>
 	</section>
 
 	<section aria-labelledby="friends-title">
@@ -129,6 +130,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 						</tbody>
 					</table>
 				</div>
+				<div id="friends-pager"></div>
 				<p class="count" id="friends-count">
 					{plural(summary.friendCount, 'account')} registered through your link{summary.friendCount > summary.friends.length ? ` (the latest ${summary.friends.length} are listed)` : ''}.
 				</p>
@@ -154,6 +156,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 				</ul>
 			)
 		}
+		<div id="history-pager"></div>
 	</section>
 
 	<dialog id="claim-dialog" class="dialog" aria-labelledby="claim-title" aria-describedby="claim-text">
@@ -173,6 +176,18 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 </AccountLayout>
 
 <script>
+	import { paginateElements } from '../../scripts/pager';
+
+	// The three lists of this page are cut into pages; the claims list is refreshed after a new claim.
+	const claimRows = document.querySelector<HTMLElement>('#claim-rows')!;
+	const claimsPager = paginateElements(document.querySelector<HTMLElement>('#claims-pager')!, () => [...claimRows.querySelectorAll<HTMLElement>('tr')], 'Your claims');
+	const friendRows = document.querySelector<HTMLElement>('#friends tbody');
+	const friendsMount = document.querySelector<HTMLElement>('#friends-pager');
+	if (friendRows && friendsMount) paginateElements(friendsMount, () => [...friendRows.querySelectorAll<HTMLElement>('tr')], 'Your friends');
+	const historyList = document.querySelector<HTMLElement>('#history');
+	const historyMount = document.querySelector<HTMLElement>('#history-pager');
+	if (historyList && historyMount) paginateElements(historyMount, () => [...historyList.querySelectorAll<HTMLElement>('li')], 'History');
+
 	const field = document.querySelector<HTMLInputElement>('#ref-link');
 	const status = document.querySelector<HTMLElement>('#copied');
 	document.querySelector('#copy-link')?.addEventListener('click', async () => {
@@ -282,6 +297,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 			}
 			balance = data.balance;
 			document.querySelector('#claim-rows')!.replaceChildren(...data.claims.map(row));
+			claimsPager.refresh(true); // the newest claim is first, on page 1
 			document.querySelector<HTMLElement>('#claims-wrap')!.hidden = false;
 			document.querySelector<HTMLElement>('#claims-none')!.hidden = true;
 			paintBalance();

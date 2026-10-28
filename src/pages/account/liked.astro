@@ -8,5 +8,5 @@ const likedPhotos = listLiked(Astro.locals.user!.id);
 ---
 
 <AccountLayout title="Liked photos" heading="Liked photos">
-	<PhotoTiles photos={likedPhotos} empty="You haven't liked any photos yet." />
+	<PhotoTiles photos={likedPhotos} empty="You haven't liked any photos yet." paginate />
 </AccountLayout>

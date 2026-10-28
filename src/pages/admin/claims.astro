@@ -82,6 +82,7 @@ export const prerender = false;
 						</tbody>
 					</table>
 				</div>
+				<div id="claims-pager"></div>
 				<p class="empty" id="no-match" hidden>No claim has this status.</p>
 			</>
 		)
@@ -89,6 +90,8 @@ export const prerender = false;
 </AdminLayout>
 
 <script>
+	import { paginateElements } from '../../scripts/pager';
+
 	const body = document.querySelector<HTMLElement>('#claim-rows');
 	if (body) {
 		const filter = document.querySelector<HTMLSelectElement>('#status-filter')!;
@@ -98,7 +101,8 @@ export const prerender = false;
 		const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 		const LABEL: Record<string, string> = { processing: 'Processing', paid: 'Paid', rejected: 'Rejected' };
 
-		const applyFilter = () => {
+		const claimsPager = paginateElements(document.querySelector<HTMLElement>('#claims-pager')!, () => [...body.querySelectorAll<HTMLElement>('tr')], 'Credit claims');
+		const applyFilter = (resetPage = true) => {
 			let shown = 0;
 			for (const row of body.querySelectorAll<HTMLElement>('tr')) {
 				row.hidden = filter.value !== '' && row.dataset.status !== filter.value;
@@ -106,8 +110,9 @@ export const prerender = false;
 			}
 			wrap.hidden = shown === 0;
 			noMatch.hidden = shown !== 0;
+			claimsPager.refresh(resetPage);
 		};
-		filter.addEventListener('change', applyFilter);
+		filter.addEventListener('change', () => applyFilter());
 
 		// The totals above the table follow the rows on the page.
 		const recount = () => {
@@ -162,7 +167,7 @@ export const prerender = false;
 			say.classList.remove('is-error');
 			say.textContent = next === 'rejected' ? `Claim by ${who} rejected: the credits were returned.` : `Claim by ${who} is now ${LABEL[next]}.`;
 			recount();
-			applyFilter();
+			applyFilter(false);
 		});
 	}
 </script>

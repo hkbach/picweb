@@ -1,0 +1,87 @@
+/* Pagination controls shared by every list in the admin and account pages (see src/scripts/pager.ts). */
+
+/* Items of a paginated list that are on another page. A separate attribute from `hidden`, which filters use. */
+[data-off-page] {
+	display: none !important;
+}
+
+.pg {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px 20px;
+	margin: 14px 0;
+	font-size: 14px;
+}
+.pg-mount[hidden] {
+	display: none;
+}
+.pg-size {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--muted);
+}
+.pg-size select {
+	height: 36px;
+	padding: 0 10px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: #fff;
+	color: var(--text);
+	font: inherit;
+	font-size: 14px;
+}
+.pg-size select:focus-visible {
+	outline: 2px solid var(--text);
+	outline-offset: 1px;
+}
+.pg-info {
+	margin: 0;
+	color: var(--muted);
+}
+.pg-nav {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-left: auto;
+}
+.pg-label {
+	min-width: 6.5em;
+	text-align: center;
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+}
+.pg-btn {
+	height: 36px;
+	padding: 0 16px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: #fff;
+	color: var(--text);
+	font: inherit;
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.15s, border-color 0.15s;
+}
+.pg-btn:hover:not(:disabled) {
+	border-color: var(--text);
+	background: var(--bg-soft);
+}
+.pg-btn:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+.pg-btn:focus-visible {
+	outline: 2px solid var(--text);
+	outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+	.pg-nav {
+		width: 100%;
+		margin-left: 0;
+		justify-content: space-between;
+	}
+}

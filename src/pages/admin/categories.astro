@@ -37,6 +37,7 @@ export const prerender = false;
 			<p class="count" id="count" aria-live="polite"></p>
 		</div>
 		<ol class="rows" id="rows"></ol>
+		<div id="categories-pager"></div>
 		<p class="empty" id="empty" hidden>No categories yet. The navigation bar is hidden on the Homepage until you add one.</p>
 	</section>
 
@@ -62,6 +63,7 @@ export const prerender = false;
 
 <script>
 	import { saveCategories } from '../../scripts/categories-api';
+	import { createPager } from '../../scripts/pager';
 
 	interface Category {
 		id: string;
@@ -85,6 +87,7 @@ export const prerender = false;
 	const saveButton = document.querySelector<HTMLButtonElement>('#save')!;
 	const discardButton = document.querySelector<HTMLButtonElement>('#discard')!;
 	const status = document.querySelector<HTMLElement>('#status')!;
+	const pager = createPager(document.querySelector<HTMLElement>('#categories-pager')!, () => render(), 'Categories');
 
 	const say = (message: string, isError = false) => {
 		status.textContent = message;
@@ -106,7 +109,11 @@ export const prerender = false;
 	// Redraws the list and the preview. `focus` puts keyboard focus back on a control after a move.
 	const render = (focus?: { id: string; control: 'up' | 'down' | 'del' | 'name' }) => {
 		rows.replaceChildren();
-		items.forEach((item, i) => {
+		pager.setTotal(items.length);
+		const offset = pager.start;
+		// `i` is the place in the whole list, so numbering and the first/last checks do not depend on the page.
+		pager.slice(items).forEach((item, k) => {
+			const i = offset + k;
 			const row = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
 			row.dataset.id = item.id;
 
@@ -154,6 +161,7 @@ export const prerender = false;
 
 			const move = (by: number, control: 'up' | 'down') => {
 				[items[i], items[i + by]] = [items[i + by], items[i]];
+				pager.goToIndex(i + by); // follow the item to its page
 				render({ id: item.id, control });
 			};
 			up.addEventListener('click', () => move(-1, 'up'));
@@ -215,6 +223,8 @@ export const prerender = false;
 		items.push({ id: makeId(), name: newName.value.trim() });
 		newName.value = '';
 		say('Added. Click Save changes to publish the new order.');
+		pager.setTotal(items.length);
+		pager.goToIndex(items.length - 1); // show the new category
 		render();
 		newName.focus();
 	});

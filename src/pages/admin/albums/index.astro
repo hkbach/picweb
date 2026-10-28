@@ -183,6 +183,7 @@ export const prerender = false;
 					</tbody>
 				</table>
 			</div>
+			<div id="albums-pager"></div>
 			<p class="empty" id="no-match" hidden>No album matches these filters.</p>
 			</>
 		)
@@ -202,6 +203,8 @@ export const prerender = false;
 </AdminLayout>
 
 <script>
+	import { paginateElements } from '../../../scripts/pager';
+
 	// ---- the time an album was created, in the viewer's own time zone
 	const when = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 	document.querySelectorAll<HTMLTimeElement>('time[data-local-time]').forEach((el) => {
@@ -246,7 +249,11 @@ export const prerender = false;
 	};
 	let sortDirection: 'none' | 'asc' | 'desc' = 'none';
 
-	const applyFilters = () => {
+	// The table is cut into pages after the filters: only the rows a filter lets through are counted.
+	const pagerMount = document.querySelector<HTMLElement>('#albums-pager');
+	const albumPager = pagerMount && rowsBody ? paginateElements(pagerMount, () => [...rowsBody.querySelectorAll<HTMLElement>('tr')], 'Albums') : null;
+
+	const applyFilters = (resetPage = true) => {
 		if (!filters || !rowsBody) return;
 		const q = plain(field('f-search').value.trim());
 		const type = field('f-type').value;
@@ -264,6 +271,7 @@ export const prerender = false;
 		$('#table-wrap').hidden = total > 0 && shown === 0;
 		$('#no-match').hidden = !(total > 0 && shown === 0);
 		refreshCounts();
+		albumPager?.refresh(resetPage);
 	};
 
 	const applySort = () => {
@@ -273,11 +281,12 @@ export const prerender = false;
 		const order = (r: HTMLElement) => Number(r.dataset.order);
 		rows.sort((a, b) => (sortDirection === 'none' ? 0 : sortDirection === 'asc' ? key(a) - key(b) : key(b) - key(a)) || order(a) - order(b));
 		rowsBody.append(...rows);
+		albumPager?.refresh(true);
 		photosHeader.setAttribute('aria-sort', sortDirection === 'none' ? 'none' : sortDirection === 'asc' ? 'ascending' : 'descending');
 		sortButton.querySelector<HTMLElement>('.sort-arrow')!.textContent = sortDirection === 'asc' ? '▲' : sortDirection === 'desc' ? '▼' : '';
 	};
 
-	filters?.addEventListener('input', applyFilters);
+	filters?.addEventListener('input', () => applyFilters());
 	filters?.addEventListener('submit', (e) => e.preventDefault());
 	$('#f-clear')?.addEventListener('click', () => {
 		filters?.reset();
@@ -342,7 +351,7 @@ export const prerender = false;
 			del.setAttribute('aria-disabled', 'true');
 			del.title = 'Deactivate the album first: only a deactivated album can be deleted';
 		}
-		applyFilters();
+		applyFilters(false);
 		if (row.hidden) field('f-status').focus(); // the row no longer matches the filter: keep the focus on the controls
 		say(off ? `Album “${title}” was deactivated: it is no longer shown on the site, and its data is kept. You can activate it again, or delete it.` : `Album “${title}” is active again and shown on the site.`);
 	});
@@ -415,12 +424,12 @@ export const prerender = false;
 		dialog.close();
 
 		// Take the row off the page and keep keyboard focus nearby.
-		const shownRows = [...document.querySelectorAll<HTMLElement>('#album-rows tr:not([hidden])')];
+		const shownRows = [...document.querySelectorAll<HTMLElement>('#album-rows tr:not([hidden]):not([data-off-page])')];
 		const at = shownRows.indexOf(row);
 		const next = (shownRows[at + 1] ?? shownRows[at - 1])?.querySelector<HTMLElement>('[data-delete]') ?? null;
 		row.remove();
 		const left = document.querySelectorAll('#album-rows tr').length;
-		applyFilters();
+		applyFilters(false);
 		if (left === 0) {
 			const empty = document.createElement('p');
 			empty.className = 'empty';
