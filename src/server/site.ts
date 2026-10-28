@@ -1,3 +1,5 @@
+import './env.ts';
+
 // The public address of this site, used for canonical links, Open Graph addresses, robots.txt and sitemap.xml.
 //
 // Set SITE_URL (for example https://picweb.example.com) in production. It is NOT taken from the request there: a

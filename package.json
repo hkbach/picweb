@@ -12,10 +12,12 @@
     "astro": "astro",
     "crawl": "node crawler/cli.ts",
     "create-admin": "node scripts/create-admin.ts",
-    "seed:demo": "node scripts/seed-demo.ts"
+    "seed:demo": "node scripts/seed-demo.ts",
+    "check-storage": "node scripts/check-storage.ts"
   },
   "dependencies": {
     "@astrojs/node": "^11.1.9",
+    "@aws-sdk/client-s3": "^3.1158.0",
     "astro": "^7.4.2",
     "playwright": "^1.64.1"
   },

@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { transaction } from '../../../../server/db.ts';
 import { AlbumError, cleanCategoryIds, cleanSources, cleanTitle, insertAlbum, removeUnreferenced } from '../../../../server/albums.ts';
 import { readUploadRequest, storeItems } from '../../../../server/uploads.ts';
-import { getStorage } from '../../../../server/storage.ts';
+import { getStorage, StorageError } from '../../../../server/storage.ts';
 import { json, rejectCrossOrigin, requireAdmin } from '../../../../server/admin-api.ts';
 
 // Creates an album from the Upload tab. The page deletes its downloaded copies right after a 200, so a 200 means
@@ -39,6 +39,7 @@ export const POST: APIRoute = async ({ request }) => {
 		// Pictures stored for an album that was not created are removed again (unless another album uses them).
 		await removeUnreferenced(keys);
 		if (error instanceof AlbumError) return json({ error: error.message }, error.status);
+		if (error instanceof StorageError) return json({ error: error.message }, 502);
 		throw error;
 	}
 };

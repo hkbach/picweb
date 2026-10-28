@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { db, transaction } from '../../../../../server/db.ts';
 import { AlbumError, cleanCategoryIds, cleanTitle, removeUnreferenced, replaceAlbum } from '../../../../../server/albums.ts';
 import { readUploadRequest, storeItems } from '../../../../../server/uploads.ts';
-import { getStorage } from '../../../../../server/storage.ts';
+import { getStorage, StorageError } from '../../../../../server/storage.ts';
 import { json, rejectCrossOrigin, requireAdmin } from '../../../../../server/admin-api.ts';
 
 // Changes an album made from uploaded files: keeps the photos listed as existing, stores the new ones and
@@ -46,6 +46,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
 	} catch (error) {
 		await removeUnreferenced(keys);
 		if (error instanceof AlbumError) return json({ error: error.message }, error.status);
+		if (error instanceof StorageError) return json({ error: error.message }, 502);
 		throw error;
 	}
 };

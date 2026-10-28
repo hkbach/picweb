@@ -1,3 +1,4 @@
+import './env.ts';
 import path from 'node:path';
 import { userFromRequest, type SessionUser } from './sessions.ts';
 
