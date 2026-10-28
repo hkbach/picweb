@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { randomUUID } from 'node:crypto';
-import { db } from '../../../server/db.ts';
+import { db, transaction } from '../../../server/db.ts';
+import { findInviter, newReferralCode, registerCredits } from '../../../server/credits.ts';
 import { hashPassword, passwordProblem } from '../../../server/passwords.ts';
 import { createSession, sessionCookie } from '../../../server/sessions.ts';
 import { allow } from '../../../server/limits.ts';
@@ -29,9 +30,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 	const passwordHash = await hashPassword(body.password as string);
 	try {
 		// New accounts are always plain users; an administrator is only ever made by the bootstrap or by another administrator.
-		db()
-			.prepare("INSERT INTO users (id, first_name, last_name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, 'user', ?)")
-			.run(id, firstName, lastName, email, passwordHash, new Date().toISOString());
+		// A code that matches nobody is ignored: it must never stop a sign-up.
+		const inviterId = typeof body.ref === 'string' ? findInviter(body.ref) : null;
+		transaction(() => {
+			db()
+				.prepare("INSERT INTO users (id, first_name, last_name, email, password_hash, role, created_at, referral_code, referred_by) VALUES (?, ?, ?, ?, ?, 'user', ?, ?, ?)")
+				.run(id, firstName, lastName, email, passwordHash, new Date().toISOString(), newReferralCode(), inviterId);
+			registerCredits(id, inviterId);
+		});
 	} catch (error) {
 		if (String((error as Error).message).includes('UNIQUE')) return json({ error: 'An account with this email already exists.' }, 409);
 		throw error;

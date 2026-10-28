@@ -1,18 +1,20 @@
 // Counts a view each time a photo is shown in the album popup (when it opens, and when the visitor moves to another
 // photo). A photo is reported once per browser tab session, so flicking back and forth or reopening it does not count
 // again. Nothing about the visitor is sent: only the photo's number.
-const SEEN_KEY = 'picweb_viewed_photos';
+// Kept apart for visitors and for signed-in users: someone who browsed first and then signed in is reported again, so
+// the albums they open count for them (an invited friend's albums earn their inviter credits).
+const seenKey = () => `picweb_viewed_photos:${document.documentElement.dataset.auth === 'user' ? 'user' : 'guest'}`;
 
 const seen = (): Set<number> => {
 	try {
-		return new Set(JSON.parse(sessionStorage.getItem(SEEN_KEY) ?? '[]') as number[]);
+		return new Set(JSON.parse(sessionStorage.getItem(seenKey()) ?? '[]') as number[]);
 	} catch {
 		return new Set();
 	}
 };
 const remember = (ids: Set<number>) => {
 	try {
-		sessionStorage.setItem(SEEN_KEY, JSON.stringify([...ids].slice(-500)));
+		sessionStorage.setItem(seenKey(), JSON.stringify([...ids].slice(-500)));
 	} catch {
 		// storage blocked: the photo may be counted again next time, which is harmless
 	}

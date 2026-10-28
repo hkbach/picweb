@@ -13,6 +13,8 @@ export interface AccountUser {
 export type AuthResult = { ok: true; user: AccountUser } | { ok: false; error: string };
 export type PasswordResult = { ok: true } | { ok: false; reason: 'error'; error: string };
 
+import { forgetRef, storedRef } from './referral';
+
 const post = async (url: string, method: string, body?: unknown): Promise<{ ok: boolean; status: number; data: any }> => {
 	try {
 		const response = await fetch(url, {
@@ -45,7 +47,10 @@ export async function login(email: string, password: string): Promise<AuthResult
 }
 
 export async function register(input: { firstName: string; lastName: string; email: string; password: string }): Promise<AuthResult> {
-	const r = await post('/api/auth/register', 'POST', input);
+	// If the person came through an invitation link, its code goes along (the server ignores a code it does not know).
+	const ref = storedRef();
+	const r = await post('/api/auth/register', 'POST', ref ? { ...input, ref } : input);
+	if (r.ok) forgetRef();
 	return r.ok ? { ok: true, user: r.data.user } : failure(r, 'The account could not be created. Please try again.');
 }
 

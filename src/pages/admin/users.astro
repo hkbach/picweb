@@ -2,6 +2,7 @@
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import UserSummary from '../../components/UserSummary.astro';
 import UserTable from '../../components/UserTable.astro';
+import ReferralSettings from '../../components/ReferralSettings.astro';
 import { listUsers } from '../../server/repo.ts';
 
 const users = listUsers();
@@ -23,6 +24,9 @@ export const prerender = false;
 		<button type="button" class="tab" role="tab" id="tab-users" aria-controls="panel-users" aria-selected="false" tabindex="-1" data-tab="users">
 			Users
 		</button>
+		<button type="button" class="tab" role="tab" id="tab-referrals" aria-controls="panel-referrals" aria-selected="false" tabindex="-1" data-tab="referrals">
+			Referral credits
+		</button>
 	</div>
 
 	<div role="tabpanel" id="panel-summary" aria-labelledby="tab-summary">
@@ -31,12 +35,15 @@ export const prerender = false;
 	<div role="tabpanel" id="panel-users" aria-labelledby="tab-users" hidden>
 		<UserTable />
 	</div>
+	<div role="tabpanel" id="panel-referrals" aria-labelledby="tab-referrals" hidden>
+		<ReferralSettings />
+	</div>
 
 	<script type="application/json" id="users-data" is:inline set:html={json} />
 </AdminLayout>
 
 <script>
-	// Tabs: "Summary" and "Users". The URL hash (#users) lets a tab be linked to.
+	// Tabs: "Summary", "Users" and "Referral credits". The URL hash (#users, #referrals) lets a tab be linked to.
 	const list = document.querySelector<HTMLElement>('#user-tabs')!;
 	const tabs = Array.from(list.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
 
@@ -60,7 +67,8 @@ export const prerender = false;
 		select(tabs[(next + tabs.length) % tabs.length].dataset.tab!, true);
 	});
 
-	if (location.hash === '#users') select('users');
+	const fromHash = location.hash.slice(1);
+	if (tabs.some((t) => t.dataset.tab === fromHash && fromHash !== 'summary')) select(fromHash);
 </script>
 
 <style>

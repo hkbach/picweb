@@ -131,6 +131,36 @@ const MIGRATIONS: string[] = [
 		views INTEGER NOT NULL DEFAULT 0
 	);
 	`,
+	`
+	-- Referrals and credits. Every user has a code for an invitation link; a user who signs up through a link remembers
+	-- who invited them. Credits are never stored as a balance: the balance is the sum of the ledger, one row per grant.
+	ALTER TABLE users ADD COLUMN referral_code TEXT;
+	ALTER TABLE users ADD COLUMN referred_by TEXT REFERENCES users(id) ON DELETE SET NULL;
+	UPDATE users SET referral_code = lower(hex(randomblob(5)));
+	CREATE UNIQUE INDEX users_referral_code ON users(referral_code);
+	-- Settings an administrator can change (the credit amounts); a missing row means the built-in default.
+	CREATE TABLE settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	);
+	CREATE TABLE credit_ledger (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		amount INTEGER NOT NULL,
+		reason TEXT NOT NULL CHECK (reason IN ('signup', 'referral_signup', 'referral_albums')),
+		-- the invited friend a credit came from (plain text: it stays if that account is deleted)
+		source_user_id TEXT,
+		created_at TEXT NOT NULL
+	);
+	CREATE INDEX credit_ledger_user ON credit_ledger(user_id);
+	-- The albums a user has opened, once each: the invited friend's progress towards the next credit of the inviter.
+	CREATE TABLE album_opens (
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (user_id, album_id)
+	);
+	`,
 ];
 
 type Db = DatabaseSync;

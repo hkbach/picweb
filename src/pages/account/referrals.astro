@@ -1,0 +1,218 @@
+---
+import AccountLayout from '../../layouts/AccountLayout.astro';
+import { referralSummary } from '../../server/credits.ts';
+
+export const prerender = false;
+
+const summary = referralSummary(Astro.locals.user!.id);
+const { settings } = summary;
+const link = `${Astro.url.origin}/?ref=${summary.code}`;
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const REASONS = { signup: 'Welcome credits for registering', referral_signup: 'A friend registered with your link', referral_albums: 'A friend opened albums' } as const;
+const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+---
+
+<AccountLayout title="Referrals" heading="Referrals">
+	<section class="balance" aria-labelledby="balance-title">
+		<h2 id="balance-title">Your credits</h2>
+		<p class="amount" id="balance">{summary.balance.toLocaleString('en-US')}</p>
+	</section>
+
+	<section class="share" aria-labelledby="share-title">
+		<h2 id="share-title">Invite friends</h2>
+		<p class="lead">Share your link. When a friend registers through it, you earn credits as they enjoy Picweb.</p>
+		<div class="link-row">
+			<input id="ref-link" type="text" readonly value={link} aria-label="Your invitation link" />
+			<button type="button" id="copy-link" class="copy">Copy link</button>
+		</div>
+		<p class="copied" id="copied" role="status"></p>
+		<ul class="rules">
+			<li>You got <strong>{plural(settings.signup, 'credit')}</strong> for registering.</li>
+			<li>A friend registers through your link: <strong>{plural(settings.referralSignup, 'credit')}</strong> for you.</li>
+			<li>
+				Each time that friend has opened <strong>{plural(settings.albumsPerCredit, 'different album')}</strong> to look at the photos: <strong>{plural(settings.referralAlbums, 'credit')}</strong> for you.
+			</li>
+		</ul>
+	</section>
+
+	<section aria-labelledby="friends-title">
+		<h2 id="friends-title">Your friends</h2>
+		{
+			summary.friends.length === 0 ? (
+				<p class="none" id="friends-none">No one has registered through your link yet.</p>
+			) : (
+				<ul class="friends" id="friends">
+					{summary.friends.map((f, i) => (
+						<li>
+							<span class="who">Friend {i + 1}</span>
+							<span class="progress">
+								{plural(f.opened, 'album')} opened · {settings.albumsPerCredit - (f.opened % settings.albumsPerCredit)} more for the next credit
+							</span>
+						</li>
+					))}
+				</ul>
+			)
+		}
+		<p class="privacy">Friends are not named here: you only see how far each one has got.</p>
+	</section>
+
+	<section aria-labelledby="history-title">
+		<h2 id="history-title">History</h2>
+		{
+			summary.history.length === 0 ? (
+				<p class="none" id="history-none">No credits yet.</p>
+			) : (
+				<ul class="history" id="history">
+					{summary.history.map((h) => (
+						<li>
+							<span class="date">{when(h.at)}</span>
+							<span class="what">{REASONS[h.reason]}</span>
+							<span class="plus">+{h.amount}</span>
+						</li>
+					))}
+				</ul>
+			)
+		}
+	</section>
+</AccountLayout>
+
+<script>
+	const field = document.querySelector<HTMLInputElement>('#ref-link');
+	const status = document.querySelector<HTMLElement>('#copied');
+	document.querySelector('#copy-link')?.addEventListener('click', async () => {
+		if (!field || !status) return;
+		try {
+			await navigator.clipboard.writeText(field.value);
+			status.textContent = 'Link copied.';
+		} catch {
+			// no clipboard permission: select it so it can be copied by hand
+			field.focus();
+			field.select();
+			status.textContent = 'Press Ctrl+C to copy the selected link.';
+		}
+	});
+	field?.addEventListener('focus', () => field.select());
+</script>
+
+<style>
+	section {
+		max-width: 640px;
+		margin: 0 0 28px;
+	}
+	h2 {
+		margin: 0 0 8px;
+		font-size: 17px;
+	}
+	.balance {
+		padding: 16px 20px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.amount {
+		margin: 0;
+		font-size: 36px;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+	}
+	.lead {
+		margin: 0 0 12px;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.link-row {
+		display: flex;
+		gap: 8px;
+	}
+	#ref-link {
+		flex: 1;
+		min-width: 0;
+		height: 44px;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		background: var(--bg-soft);
+		font: inherit;
+		font-size: 14px;
+	}
+	.copy {
+		height: 44px;
+		padding: 0 20px;
+		border: 0;
+		border-radius: 999px;
+		background: var(--text);
+		color: #fff;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.copy:focus-visible,
+	#ref-link:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.copied {
+		min-height: 1.3em;
+		margin: 6px 0 0;
+		font-size: 13px;
+		color: #1b6b34;
+	}
+	.rules {
+		margin: 8px 0 0;
+		padding-left: 18px;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.rules strong {
+		color: var(--text);
+	}
+	.rules li + li {
+		margin-top: 4px;
+	}
+	.none,
+	.privacy {
+		margin: 0;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.privacy {
+		margin-top: 8px;
+		font-size: 12px;
+	}
+	.friends,
+	.history {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.friends li,
+	.history li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 4px 12px;
+		padding: 10px 16px;
+		font-size: 14px;
+	}
+	.friends li + li,
+	.history li + li {
+		border-top: 1px solid var(--bg-soft);
+	}
+	.who {
+		font-weight: 600;
+	}
+	.progress,
+	.date {
+		color: var(--muted);
+	}
+	.history .what {
+		flex: 1;
+		min-width: 140px;
+	}
+	.plus {
+		font-weight: 700;
+		color: #1b6b34;
+		font-variant-numeric: tabular-nums;
+	}
+</style>
