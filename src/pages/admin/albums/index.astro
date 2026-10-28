@@ -39,6 +39,38 @@ export const prerender = false;
 		albums.length === 0 ? (
 			<p class="empty" id="empty">No albums yet. Create the first one.</p>
 		) : (
+			<>
+			<form class="filters" id="album-filters" role="search" aria-label="Search and filter albums" autocomplete="off">
+				<div class="field field-search">
+					<label for="f-search">Search title</label>
+					<input type="search" id="f-search" placeholder="Title contains…" maxlength="200" />
+				</div>
+				<div class="field">
+					<label for="f-type">Type</label>
+					<select id="f-type">
+						<option value="">All types</option>
+						<option value="crawling">{albumTypeLabels.crawling}</option>
+						<option value="uploaded">{albumTypeLabels.uploaded}</option>
+					</select>
+				</div>
+				<div class="field">
+					<label for="f-status">Status</label>
+					<select id="f-status">
+						<option value="">All statuses</option>
+						<option value="active">Active</option>
+						<option value="deactivated">Deactivated</option>
+					</select>
+				</div>
+				<div class="field">
+					<label for="f-from">Created from</label>
+					<input type="date" id="f-from" />
+				</div>
+				<div class="field">
+					<label for="f-to">Created to</label>
+					<input type="date" id="f-to" />
+				</div>
+				<button type="button" class="clear" id="f-clear" hidden>Clear filters</button>
+			</form>
 			<div class="table-wrap" id="table-wrap">
 				<table>
 					<caption class="visually-hidden">Albums and how each one was created</caption>
@@ -49,7 +81,11 @@ export const prerender = false;
 							</th>
 							<th scope="col">Title</th>
 							<th scope="col" class="col-cats">Categories</th>
-							<th scope="col" class="num">Photos</th>
+							<th scope="col" class="num" id="th-photos" aria-sort="none">
+									<button type="button" class="sort" id="sort-photos" title="Sort by number of photos">
+										Photos <span class="sort-arrow" aria-hidden="true"></span>
+									</button>
+								</th>
 							<th scope="col">Type</th>
 							<th scope="col" class="col-status">Status</th>
 							<th scope="col" class="col-created">Created</th>
@@ -59,8 +95,8 @@ export const prerender = false;
 						</tr>
 					</thead>
 					<tbody id="album-rows">
-						{albums.map((album) => (
-							<tr data-album-id={album.id} data-status={album.status} class:list={{ off: album.status === 'deactivated' }}>
+						{albums.map((album, index) => (
+							<tr data-album-id={album.id} data-status={album.status} data-title={album.title} data-type={album.type} data-created={album.createdAt} data-photo-count={album.photos.length} data-order={index} class:list={{ off: album.status === 'deactivated' }}>
 								<td class="col-cover">
 									<img
 										src={album.cover.thumb}
@@ -147,6 +183,8 @@ export const prerender = false;
 					</tbody>
 				</table>
 			</div>
+			<p class="empty" id="no-match" hidden>No album matches these filters.</p>
+			</>
 		)
 	}
 
@@ -184,12 +222,73 @@ export const prerender = false;
 	const count = $('#album-count');
 
 	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+	// With a filter on, the count reads "2 of 7 albums" and only counts what is shown.
 	const refreshCounts = () => {
-		const rows = document.querySelectorAll('#album-rows tr');
-		const off = document.querySelectorAll('#album-rows tr[data-status="deactivated"]').length;
-		count.textContent = plural(rows.length, 'album');
+		const rows = [...document.querySelectorAll<HTMLElement>('#album-rows tr')];
+		const shown = rows.filter((r) => !r.hidden);
+		const off = shown.filter((r) => r.dataset.status === 'deactivated').length;
+		count.textContent = shown.length === rows.length ? plural(rows.length, 'album') : `${shown.length} of ${plural(rows.length, 'album')}`;
 		$('#album-count-off').textContent = off > 0 ? ` · ${off} deactivated` : '';
 	};
+
+	// ---- search, filter and sort: the whole list is already on the page, so this needs no request
+	const filters = document.querySelector<HTMLFormElement>('#album-filters');
+	const rowsBody = document.querySelector<HTMLElement>('#album-rows');
+	const sortButton = document.querySelector<HTMLButtonElement>('#sort-photos');
+	const photosHeader = document.querySelector<HTMLElement>('#th-photos');
+	const field = (id: string) => document.querySelector<HTMLInputElement & HTMLSelectElement>(`#${id}`)!;
+	// Letters are compared without accents and case, so "ao dai" finds "Áo Dài".
+	const plain = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase();
+	// The date a viewer sees in the Created column is in their own time zone, so the date filter uses it too.
+	const localDay = (iso: string) => {
+		const d = new Date(iso);
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	};
+	let sortDirection: 'none' | 'asc' | 'desc' = 'none';
+
+	const applyFilters = () => {
+		if (!filters || !rowsBody) return;
+		const q = plain(field('f-search').value.trim());
+		const type = field('f-type').value;
+		const state = field('f-status').value;
+		const from = field('f-from').value;
+		const to = field('f-to').value;
+		for (const row of rowsBody.querySelectorAll<HTMLElement>('tr')) {
+			const day = localDay(row.dataset.created!);
+			row.hidden = !((!q || plain(row.dataset.title ?? '').includes(q)) && (!type || row.dataset.type === type) && (!state || row.dataset.status === state) && (!from || day >= from) && (!to || day <= to));
+		}
+		const active = Boolean(q || type || state || from || to);
+		$('#f-clear').hidden = !active;
+		const total = rowsBody.querySelectorAll('tr').length;
+		const shown = rowsBody.querySelectorAll('tr:not([hidden])').length;
+		$('#table-wrap').hidden = total > 0 && shown === 0;
+		$('#no-match').hidden = !(total > 0 && shown === 0);
+		refreshCounts();
+	};
+
+	const applySort = () => {
+		if (!rowsBody || !sortButton || !photosHeader) return;
+		const rows = [...rowsBody.querySelectorAll<HTMLElement>('tr')];
+		const key = (r: HTMLElement) => Number(r.dataset.photoCount);
+		const order = (r: HTMLElement) => Number(r.dataset.order);
+		rows.sort((a, b) => (sortDirection === 'none' ? 0 : sortDirection === 'asc' ? key(a) - key(b) : key(b) - key(a)) || order(a) - order(b));
+		rowsBody.append(...rows);
+		photosHeader.setAttribute('aria-sort', sortDirection === 'none' ? 'none' : sortDirection === 'asc' ? 'ascending' : 'descending');
+		sortButton.querySelector<HTMLElement>('.sort-arrow')!.textContent = sortDirection === 'asc' ? '▲' : sortDirection === 'desc' ? '▼' : '';
+	};
+
+	filters?.addEventListener('input', applyFilters);
+	filters?.addEventListener('submit', (e) => e.preventDefault());
+	$('#f-clear')?.addEventListener('click', () => {
+		filters?.reset();
+		applyFilters();
+		field('f-search').focus();
+	});
+	// Most photos first, then fewest first, then back to the original order.
+	sortButton?.addEventListener('click', () => {
+		sortDirection = sortDirection === 'none' ? 'desc' : sortDirection === 'desc' ? 'asc' : 'none';
+		applySort();
+	});
 	const say = (message: string, isError = false) => {
 		status.textContent = message;
 		status.classList.toggle('is-error', isError);
@@ -243,7 +342,8 @@ export const prerender = false;
 			del.setAttribute('aria-disabled', 'true');
 			del.title = 'Deactivate the album first: only a deactivated album can be deleted';
 		}
-		refreshCounts();
+		applyFilters();
+		if (row.hidden) field('f-status').focus(); // the row no longer matches the filter: keep the focus on the controls
 		say(off ? `Album “${title}” was deactivated: it is no longer shown on the site, and its data is kept. You can activate it again, or delete it.` : `Album “${title}” is active again and shown on the site.`);
 	});
 
@@ -315,10 +415,12 @@ export const prerender = false;
 		dialog.close();
 
 		// Take the row off the page and keep keyboard focus nearby.
-		const next = (row.nextElementSibling ?? row.previousElementSibling)?.querySelector<HTMLElement>('[data-delete]') ?? null;
+		const shownRows = [...document.querySelectorAll<HTMLElement>('#album-rows tr:not([hidden])')];
+		const at = shownRows.indexOf(row);
+		const next = (shownRows[at + 1] ?? shownRows[at - 1])?.querySelector<HTMLElement>('[data-delete]') ?? null;
 		row.remove();
 		const left = document.querySelectorAll('#album-rows tr').length;
-		refreshCounts();
+		applyFilters();
 		if (left === 0) {
 			const empty = document.createElement('p');
 			empty.className = 'empty';
@@ -391,6 +493,115 @@ export const prerender = false;
 	}
 	.empty {
 		color: var(--muted);
+	}
+	tr[hidden],
+	.table-wrap[hidden],
+	.clear[hidden] {
+		display: none;
+	}
+
+	.filters {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 10px 12px;
+		max-width: 1040px;
+		margin: 0 0 14px;
+	}
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.field-search {
+		flex: 1 1 220px;
+	}
+	.field label {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--muted);
+	}
+	.field input,
+	.field select {
+		height: 38px;
+		min-width: 0;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: #fff;
+		color: var(--text);
+		font: inherit;
+		font-size: 14px;
+	}
+	.field input:focus-visible,
+	.field select:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 1px;
+	}
+	.clear {
+		height: 38px;
+		padding: 0 14px;
+		border: 0;
+		border-radius: 999px;
+		background: none;
+		color: var(--muted);
+		font: inherit;
+		font-size: 13px;
+		font-weight: 600;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+		cursor: pointer;
+	}
+	.clear:hover {
+		color: var(--text);
+	}
+	.clear:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	@media (max-width: 600px) {
+		.field {
+			flex: 1 1 calc(50% - 6px);
+		}
+		.field-search {
+			flex-basis: 100%;
+		}
+		.field input,
+		.field select {
+			width: 100%;
+		}
+	}
+
+	/* The Photos header is a button: it sorts the list by the number of photos. */
+	.sort {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		font: inherit;
+		letter-spacing: inherit;
+		text-transform: inherit;
+		cursor: pointer;
+	}
+	.sort:hover {
+		color: var(--text);
+	}
+	.sort:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+		border-radius: 4px;
+	}
+	.sort-arrow {
+		display: inline-block;
+		min-width: 0.8em;
+		font-size: 9px;
+	}
+	[aria-sort='ascending'] .sort,
+	[aria-sort='descending'] .sort {
+		color: var(--text);
 	}
 
 	/* The table scrolls sideways inside this box on narrow screens instead of widening the page. */
