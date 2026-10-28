@@ -18,10 +18,21 @@ export const session = fetchMe().then((user) => {
 // new tab"). Text fields are left alone so pasting into the login form still works. This is a deterrent for casual
 // saving only: it cannot stop someone who uses the browser's developer tools, a screenshot or the network log.
 // data-auth starts as "guest" on public pages, so the menu is also blocked until the server says who is there.
+const touchScreen = window.matchMedia('(pointer: coarse), (hover: none)');
 document.addEventListener('contextmenu', (event) => {
-	if (root.dataset.auth === 'user') return;
 	const target = event.target as HTMLElement | null;
 	if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+	// On a touch screen, pressing and holding a public picture raises this event (it is what opens "Save image"):
+	// nobody gets it there, signed in or not.
+	if (touchScreen.matches && target?.closest('[data-no-save], img')) {
+		event.preventDefault();
+		return;
+	}
+	if (root.dataset.auth === 'user') return;
 	event.preventDefault();
+});
+// Touch screens can also drag a picture out of the page (to Photos or Files): not from public pictures.
+document.addEventListener('dragstart', (event) => {
+	if (touchScreen.matches && (event.target as HTMLElement | null)?.closest('[data-no-save]')) event.preventDefault();
 });
 

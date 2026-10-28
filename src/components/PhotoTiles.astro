@@ -16,8 +16,8 @@ const { photos, empty = 'Nothing here yet.' } = Astro.props;
 		<ul class="tiles">
 			{photos.map((p) => (
 				<li>
-					<a href="#" class="tile" data-photo-id={p.id} aria-label={`Open album: ${p.alt}`}>
-						<img src={p.thumb} alt={p.alt} width="400" height="400" loading="lazy" decoding="async" />
+					<a href="#" class="tile" data-photo-id={p.id} data-no-save aria-label={`Open album: ${p.alt}`}>
+						<img src={p.thumb} draggable="false" alt={p.alt} width="400" height="400" loading="lazy" decoding="async" />
 					</a>
 				</li>
 			))}

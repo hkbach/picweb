@@ -207,7 +207,7 @@ const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\
 
 <script>
 	import { createAlbum, updateAlbum, type AlbumPhotoInput } from '../scripts/albums-api';
-	import { MAX_ALBUM_PHOTOS as MAX_PHOTOS, takeDraft } from '../scripts/album-draft';
+	import { MAX_ALBUM_PHOTOS as MAX_PHOTOS, takeDraft, type CrawlSourceInfo } from '../scripts/album-draft';
 	import { flagPicker, hasCategoryOptions, selectedCategoryIds } from '../scripts/category-picker';
 	import { readInitialAlbum } from '../scripts/album-initial';
 	import { askToClear, wireClearDialog } from '../scripts/confirm-clear';
@@ -316,10 +316,13 @@ const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\
 		return row;
 	};
 
+	// The pages the images were crawled from (history that is saved with the album); empty when typed in by hand.
+	let crawlSources: CrawlSourceInfo[] = [];
 	const reset = () => {
 		form.reset();
 		rows.replaceChildren();
 		addRow();
+		crawlSources = [];
 	};
 
 	addButton.addEventListener('click', () => addRow().querySelector<HTMLElement>('.url')!.focus());
@@ -359,6 +362,7 @@ const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\
 		if (radios[initial.coverIndex]) radios[initial.coverIndex].checked = true;
 		refresh();
 	} else if (draft) {
+		crawlSources = draft.sources ?? [];
 		const used = draft.photos.slice(0, MAX_PHOTOS);
 		titleInput.value = draft.title.slice(0, 80);
 		for (const photo of used) {
@@ -428,7 +432,7 @@ const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\
 		say(initial ? 'Saving changes…' : 'Creating album…');
 		const result = initial
 			? await updateAlbum({ id: initial.id, title, type: 'crawling', categoryIds, coverUrl, photos })
-			: await createAlbum({ title, type: 'crawling', categoryIds, coverUrl, photos });
+			: await createAlbum({ title, type: 'crawling', categoryIds, coverUrl, photos, sources: crawlSources });
 		submitButton.disabled = false;
 
 		if (result.ok) {
@@ -479,7 +483,7 @@ const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\
 	import { MAX_ALBUM_PHOTOS as MAX_PHOTOS } from '../scripts/album-draft';
 	import { flagPicker, hasCategoryOptions, selectedCategoryIds } from '../scripts/category-picker';
 	import { readInitialAlbum, type InitialAlbumData } from '../scripts/album-initial';
-	import { takeDownloadedDraft, readDownloadedNames, forgetDownloadedNames } from '../scripts/album-draft';
+	import { takeDownloadedDraft, readDownloadedNames, forgetDownloadedNames, type CrawlSourceInfo } from '../scripts/album-draft';
 	import { deleteDownloadedPhotos } from '../scripts/photos-api';
 	import { askToClear as askToClearUpload, wireClearDialog as wireClearDialogUpload } from '../scripts/confirm-clear';
 
@@ -637,10 +641,13 @@ const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\
 		addFiles(Array.from(e.dataTransfer?.files ?? []));
 	});
 
+	// The pages the downloaded pictures were crawled from (history that is saved with the album).
+	let crawlSources: CrawlSourceInfo[] = [];
 	const reset = () => {
 		Array.from(rows.children).forEach((row) => removeRow(row as HTMLElement));
 		form.reset();
 		refresh();
+		crawlSources = [];
 	};
 
 	// ---- Clear: wipe this tab and delete the photos the Crawling page downloaded to the server.
@@ -694,6 +701,7 @@ const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\
 	// Creating: photos the Crawling page just downloaded arrive as saved files, listed like uploads.
 	const downloaded = initial ? null : takeDownloadedDraft();
 	if (downloaded) {
+		crawlSources = downloaded.sources ?? [];
 		let host = '';
 		try {
 			host = new URL(downloaded.source).hostname;
@@ -758,7 +766,7 @@ const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\
 			const photos: UploadedPhotoInput[] = items.map((row) =>
 				row.dataset.existingUrl ? { storedUrl: row.dataset.existingUrl, ...common(row) } : { file: files.get(row)!.file, ...common(row) },
 			);
-			result = await createAlbumFromUploads({ title, type: 'uploaded', categoryIds, coverIndex, photos });
+			result = await createAlbumFromUploads({ title, type: 'uploaded', categoryIds, coverIndex, photos, sources: crawlSources });
 		}
 		// Nothing is deleted on any of these paths: the downloaded copies stay for another try.
 		if (!result.ok) {

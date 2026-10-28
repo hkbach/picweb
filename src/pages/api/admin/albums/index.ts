@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { transaction } from '../../../../server/db.ts';
-import { AlbumError, cleanCategoryIds, cleanPhotoMeta, cleanRemoteUrl, cleanTitle, insertAlbum, parsePhotoCount } from '../../../../server/albums.ts';
+import { AlbumError, cleanCategoryIds, cleanPhotoMeta, cleanRemoteUrl, cleanSources, cleanTitle, insertAlbum, parsePhotoCount } from '../../../../server/albums.ts';
 import { readJson } from '../../../../server/validate.ts';
 import { json, rejectUnlessSameOriginJson, requireAdmin } from '../../../../server/admin-api.ts';
 
@@ -24,7 +24,8 @@ export const POST: APIRoute = async ({ request }) => {
 		const photos = list.map((p) => ({ url: cleanRemoteUrl(p?.url), ...cleanPhotoMeta(p), storageKey: null }));
 		const coverIndex = photos.findIndex((p) => p.url === cleanRemoteUrl(body.coverUrl));
 		if (coverIndex < 0) throw new AlbumError('Choose which photo is the cover.');
-		const id = transaction(() => insertAlbum(admin.id, { title, type: 'crawling', categoryIds, coverIndex, photos }));
+		const sources = cleanSources(body.sources);
+		const id = transaction(() => insertAlbum(admin.id, { title, type: 'crawling', categoryIds, coverIndex, photos, sources }));
 		return json({ ok: true, id }, 201);
 	} catch (error) {
 		if (error instanceof AlbumError) return json({ error: error.message }, error.status);

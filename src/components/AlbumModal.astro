@@ -27,13 +27,13 @@ const json = JSON.stringify({ albums, photoAlbum }).replace(/</g, '\\u003c');
 		<button type="button" class="close" data-close-album aria-label="Close">×</button>
 	</header>
 
-	<div class="viewer">
+	<div class="viewer" data-no-save>
 		<button type="button" class="nav prev" data-step="-1" aria-label="Previous photo">
 			<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
 				<path d="M15.4 5.4L14 4l-8 8 8 8 1.4-1.4L8.8 12z" fill="currentColor" />
 			</svg>
 		</button>
-		<img data-image src="" alt="" />
+		<img data-image src="" alt="" draggable="false" />
 		<button type="button" class="nav next" data-step="1" aria-label="Next photo">
 			<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
 				<path d="M8.6 5.4L10 4l8 8-8 8-1.4-1.4L15.2 12z" fill="currentColor" />
@@ -60,7 +60,7 @@ const json = JSON.stringify({ albums, photoAlbum }).replace(/</g, '\\u003c');
 				<path d="M15.4 5.4L14 4l-8 8 8 8 1.4-1.4L8.8 12z" fill="currentColor" />
 			</svg>
 		</button>
-		<div class="thumbs" data-thumbs></div>
+		<div class="thumbs" data-thumbs data-no-save></div>
 		<button type="button" class="arrow arrow-next" data-scroll="1" aria-label="Scroll thumbnails right">
 			<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
 				<path d="M8.6 5.4L10 4l8 8-8 8-1.4-1.4L15.2 12z" fill="currentColor" />
@@ -148,6 +148,7 @@ const json = JSON.stringify({ albums, photoAlbum }).replace(/</g, '\\u003c');
 					const img = document.createElement('img');
 					img.src = p.thumb;
 					img.alt = '';
+					img.draggable = false;
 					img.loading = 'lazy';
 					btn.append(img);
 					btn.addEventListener('click', () => show(n));

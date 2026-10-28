@@ -1,12 +1,15 @@
 ---
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import AlbumForms from '../../../../components/AlbumForms.astro';
-import { albumTypeLabels, getAlbum } from '../../../../server/repo.ts';
+import { albumTypeLabels, getAlbum, listAlbumSources } from '../../../../server/repo.ts';
 
 // Loaded by id on every request.
 const album = /^\d+$/.test(Astro.params.id ?? '') ? getAlbum(Number(Astro.params.id)) : undefined;
 if (!album) return new Response('Album not found', { status: 404 });
 
+// Where the pictures were crawled from, in the order it happened (the history is kept when the album is edited).
+const sources = listAlbumSources(album.id);
+const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' });
 const initial = {
 	id: album.id,
 	title: album.title,
@@ -31,10 +34,109 @@ export const prerender = false;
 		}
 	</p>
 
+	<section class="sources" aria-labelledby="sources-title">
+		<h2 id="sources-title">Crawl history</h2>
+		{
+			sources.length === 0 ? (
+				<p class="none">No crawl was used for this album: its pictures were added by hand.</p>
+			) : (
+				<>
+					<p class="hint">The addresses crawled to collect this album&rsquo;s pictures. This is a record and does not change when the album is edited.</p>
+					<ol class="source-list">
+						{sources.map((s) => (
+							<li>
+								<span class={`kind kind-${s.kind}`}>{s.kind === 'facebook' ? 'Facebook' : 'Web'}</span>
+								<a class="original" href={s.url} target="_blank" rel="noopener noreferrer nofollow">
+									{s.url}
+								</a>
+								{s.finalUrl && (
+									<span class="final">
+										Led to{' '}
+										<a href={s.finalUrl} target="_blank" rel="noopener noreferrer nofollow">
+											{s.finalUrl}
+										</a>
+									</span>
+								)}
+								{s.title && <span class="page-title">{s.title}</span>}
+								<span class="when">Crawled for this album on {when(s.createdAt)}</span>
+							</li>
+						))}
+					</ol>
+				</>
+			)
+		}
+	</section>
+
 	<AlbumForms mode="edit" type={album.type} album={initial} />
 </AdminLayout>
 
 <style>
+	.sources {
+		max-width: 720px;
+		margin: 0 0 28px;
+		padding: 16px 18px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.sources h2 {
+		margin: 0 0 8px;
+		font-size: 16px;
+	}
+	.sources .hint,
+	.sources .none {
+		margin: 0 0 10px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.sources .none {
+		margin: 0;
+	}
+	.source-list {
+		display: grid;
+		gap: 12px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.source-list li {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 3px;
+		min-width: 0;
+	}
+	.source-list a {
+		max-width: 100%;
+		overflow-wrap: anywhere;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	.source-list a:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+		border-radius: 2px;
+	}
+	.original {
+		font-size: 14px;
+		font-weight: 500;
+	}
+	.final,
+	.page-title,
+	.when {
+		max-width: 100%;
+		overflow-wrap: anywhere;
+		font-size: 12px;
+		color: var(--muted);
+	}
+	.kind {
+		padding: 1px 8px;
+		border-radius: 999px;
+		background: var(--bg-soft);
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+	}
 	.back {
 		display: inline-block;
 		margin: -8px 0 12px;

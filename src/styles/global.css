@@ -50,3 +50,28 @@ button {
 html:not([data-auth="user"]) img {
 	-webkit-touch-callout: none;
 }
+
+/*
+ * Public pictures (marked data-no-save): pressing and holding one on a touch screen must not offer "Save image".
+ * The picture ignores the touch, so the press lands on the link or button around it (whose own menu is switched off
+ * too), and it cannot be selected or dragged. Mouse users are not affected (see also the contextmenu rule in
+ * scripts/session.ts). A page can still be screenshotted: this stops the casual save, nothing more.
+ */
+[data-no-save] {
+	-webkit-user-select: none;
+	user-select: none;
+}
+[data-no-save] img {
+	-webkit-user-drag: none;
+	user-drag: none;
+}
+@media (pointer: coarse), (hover: none) {
+	[data-no-save],
+	[data-no-save] img {
+		-webkit-touch-callout: none;
+	}
+	[data-no-save] img {
+		pointer-events: none;
+	}
+}
+

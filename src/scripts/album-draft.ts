@@ -2,11 +2,40 @@
 // It lives in sessionStorage: it stays in this tab only and is deleted as soon as it is read.
 export const MAX_ALBUM_PHOTOS = 50;
 
+/** One page that was crawled to collect pictures: kept with the album as its history. */
+export interface CrawlSourceInfo {
+	kind: 'web' | 'facebook';
+	/** The address as it was typed into the Crawling page (the original). */
+	url: string;
+	/** Where it led (a share link becomes the post's own address). */
+	finalUrl: string;
+	title: string;
+}
+
+/** Keeps only well-formed entries: http(s) addresses, a known kind, a bounded number. */
+export function cleanSourceList(value: unknown): CrawlSourceInfo[] {
+	if (!Array.isArray(value)) return [];
+	const list: CrawlSourceInfo[] = [];
+	for (const item of value.slice(0, 20)) {
+		const kind = item?.kind === 'facebook' ? 'facebook' : item?.kind === 'web' ? 'web' : null;
+		if (!kind || typeof item.url !== 'string' || !isHttpUrl(item.url)) continue;
+		list.push({
+			kind,
+			url: item.url,
+			finalUrl: typeof item.finalUrl === 'string' && isHttpUrl(item.finalUrl) ? item.finalUrl : '',
+			title: typeof item.title === 'string' ? item.title.slice(0, 300) : '',
+		});
+	}
+	return list;
+}
+
 export interface AlbumDraft {
 	title: string;
 	/** The page the images were crawled from. */
 	source: string;
 	photos: Array<{ url: string; alt: string }>;
+	/** Every page whose images are in the list (the crawl history of the album that will be made). */
+	sources?: CrawlSourceInfo[];
 }
 
 const KEY = 'picweb:album-draft';
@@ -45,6 +74,7 @@ export function takeDraft(): AlbumDraft | null {
 			title: typeof data.title === 'string' ? data.title : '',
 			source: typeof data.source === 'string' ? data.source : '',
 			photos,
+			sources: cleanSourceList(data.sources),
 		};
 	} catch {
 		return null;
@@ -58,6 +88,7 @@ export interface DownloadedDraft {
 	/** The page the images were crawled from. */
 	source: string;
 	photos: Array<{ url: string; alt: string }>;
+	sources?: CrawlSourceInfo[];
 }
 
 const DOWNLOADED_KEY = 'picweb:album-draft-downloaded';
@@ -89,6 +120,7 @@ export function takeDownloadedDraft(): DownloadedDraft | null {
 			title: typeof data.title === 'string' ? data.title : '',
 			source: typeof data.source === 'string' ? data.source : '',
 			photos,
+			sources: cleanSourceList(data.sources),
 		};
 	} catch {
 		return null;

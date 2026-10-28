@@ -60,6 +60,8 @@ export interface Album {
 	id: number;
 	title: string;
 	type: AlbumType;
+	/** When the album was created (ISO time). */
+	createdAt: string;
 	categoryIds: string[];
 	cover: Photo;
 	photos: Photo[];
@@ -86,7 +88,7 @@ export function listPhotos(): Photo[] {
 }
 
 export function listAlbums(): Album[] {
-	const albums = db().prepare('SELECT id, title, type, cover_photo_id FROM albums ORDER BY id').all() as Array<{ id: number; title: string; type: AlbumType; cover_photo_id: number | null }>;
+	const albums = db().prepare('SELECT id, title, type, cover_photo_id, created_at FROM albums ORDER BY id').all() as Array<{ id: number; title: string; type: AlbumType; cover_photo_id: number | null; created_at: string }>;
 	const photos = listPhotos();
 	const byAlbum = new Map<number, Photo[]>();
 	for (const p of photos) byAlbum.set(p.album, [...(byAlbum.get(p.album) ?? []), p]);
@@ -96,18 +98,38 @@ export function listAlbums(): Album[] {
 	return albums.flatMap((a) => {
 		const list = byAlbum.get(a.id) ?? [];
 		if (list.length === 0) return [];
-		return [{ id: a.id, title: a.title, type: a.type, categoryIds: catsOf.get(a.id) ?? [], cover: list.find((p) => p.id === a.cover_photo_id) ?? list[0], photos: list }];
+		return [{ id: a.id, title: a.title, type: a.type, createdAt: a.created_at, categoryIds: catsOf.get(a.id) ?? [], cover: list.find((p) => p.id === a.cover_photo_id) ?? list[0], photos: list }];
 	});
 }
 
 /**
- * What the Homepage shows: one picture per album, its cover. With a category given, only the albums in that
- * category; an album that belongs to no category is therefore never listed once a category is chosen.
+ * What the Homepage shows: one picture per album, its cover, the most recently created album first. With a
+ * category given, only the albums in that category; an album that belongs to no category is therefore never
+ * listed once a category is chosen.
  */
 export function listAlbumCovers(categoryId?: string): Photo[] {
 	return listAlbums()
 		.filter((a) => !categoryId || a.categoryIds.includes(categoryId))
+		// Newest first. Albums made in the same instant (ids grow with time) keep the later one first.
+		.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : b.id - a.id))
 		.map((a) => a.cover);
+}
+
+export interface AlbumSource {
+	kind: 'web' | 'facebook';
+	/** The address as the administrator typed it. */
+	url: string;
+	/** Where it led (for example a Facebook share link becomes the post's own address); null when it was the same. */
+	finalUrl: string | null;
+	title: string;
+	/** When the album was created from it (ISO time). */
+	createdAt: string;
+}
+
+/** The crawl history of an album: every address crawled to collect its pictures, in the order they were crawled. */
+export function listAlbumSources(albumId: number): AlbumSource[] {
+	const rows = db().prepare('SELECT kind, url, final_url, title, created_at FROM album_sources WHERE album_id = ? ORDER BY id').all(albumId) as Array<{ kind: 'web' | 'facebook'; url: string; final_url: string | null; title: string | null; created_at: string }>;
+	return rows.map((r) => ({ kind: r.kind, url: r.url, finalUrl: r.final_url && r.final_url !== r.url ? r.final_url : null, title: r.title ?? '', createdAt: r.created_at }));
 }
 
 export function getAlbum(id: number): Album | undefined {

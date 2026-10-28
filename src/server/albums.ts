@@ -56,6 +56,39 @@ export const cleanRemoteUrl = (value: unknown): string => {
 	return url.href;
 };
 
+export interface NewSource {
+	kind: 'web' | 'facebook';
+	url: string;
+	finalUrl: string | null;
+	title: string;
+}
+
+const MAX_SOURCES = 20;
+
+/**
+ * The crawl history sent with a new album: where its pictures were crawled from. The original address is kept as the
+ * administrator typed it; both must be plain http(s) addresses without credentials. The server never fetches them.
+ */
+export function cleanSources(value: unknown): NewSource[] {
+	if (value === undefined || value === null) return [];
+	if (!Array.isArray(value) || value.length > MAX_SOURCES) throw new AlbumError('The list of crawled addresses is not valid.');
+	const seen = new Set<string>();
+	const sources: NewSource[] = [];
+	for (const item of value) {
+		const kind = item?.kind === 'facebook' ? 'facebook' : item?.kind === 'web' ? 'web' : null;
+		const typed = typeof item?.url === 'string' ? item.url.trim() : '';
+		if (!kind || typed.length < 1 || typed.length > URL_MAX || /[\u0000-\u0020\u007f]/.test(typed)) throw new AlbumError('A crawled address is not valid.');
+		cleanRemoteUrl(typed); // must be an http(s) address with no credentials
+		const final = typeof item.finalUrl === 'string' && item.finalUrl.trim() !== '' ? cleanRemoteUrl(item.finalUrl.trim()) : null;
+		const title = typeof item.title === 'string' ? item.title.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 300) : '';
+		const key = `${kind} ${typed}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		sources.push({ kind, url: typed, finalUrl: final, title });
+	}
+	return sources;
+}
+
 export interface NewPhoto {
 	url: string;
 	alt: string;
@@ -79,7 +112,7 @@ function setCategories(albumId: number, categoryIds: string[]) {
 }
 
 /** Must be called inside a transaction. Returns the new album's id. */
-export function insertAlbum(actorId: string, input: { title: string; type: 'crawling' | 'uploaded'; categoryIds: string[]; coverIndex: number; photos: NewPhoto[] }): number {
+export function insertAlbum(actorId: string, input: { title: string; type: 'crawling' | 'uploaded'; categoryIds: string[]; coverIndex: number; photos: NewPhoto[]; sources?: NewSource[] }): number {
 	if (input.coverIndex < 0 || input.coverIndex >= input.photos.length) throw new AlbumError('Choose which photo is the cover.');
 	const result = db().prepare('INSERT INTO albums (title, type, created_at) VALUES (?, ?, ?)').run(input.title, input.type, new Date().toISOString());
 	const albumId = Number(result.lastInsertRowid);
@@ -91,7 +124,10 @@ export function insertAlbum(actorId: string, input: { title: string; type: 'craw
 	});
 	db().prepare('UPDATE albums SET cover_photo_id = ? WHERE id = ?').run(coverId, albumId);
 	setCategories(albumId, input.categoryIds);
-	audit(actorId, 'album.create', String(albumId), `${input.type}, ${input.photos.length} photos`);
+	const addSource = db().prepare('INSERT INTO album_sources (album_id, kind, url, final_url, title, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+	const now = new Date().toISOString();
+	for (const s of input.sources ?? []) addSource.run(albumId, s.kind, s.url, s.finalUrl, s.title, now);
+	audit(actorId, 'album.create', String(albumId), `${input.type}, ${input.photos.length} photos, ${(input.sources ?? []).length} sources`);
 	return albumId;
 }
 

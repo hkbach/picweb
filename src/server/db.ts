@@ -94,6 +94,22 @@ const MIGRATIONS: string[] = [
 		PRIMARY KEY (user_id, photo_id)
 	);
 	`,
+	`
+	-- Every address an administrator crawled to collect an album's pictures, kept for tracking where they came from.
+	-- It is a history: editing the album later does not change it, and it goes only when the album goes.
+	CREATE TABLE album_sources (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL CHECK (kind IN ('web', 'facebook')),
+		-- The address as the administrator typed it (the original), and where it led (a share link becomes the post).
+		url TEXT NOT NULL,
+		final_url TEXT,
+		title TEXT,
+		created_at TEXT NOT NULL
+	);
+	CREATE INDEX album_sources_album ON album_sources(album_id);
+	CREATE INDEX album_sources_url ON album_sources(url);
+	`,
 ];
 
 type Db = DatabaseSync;

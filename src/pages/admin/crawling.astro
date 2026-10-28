@@ -97,7 +97,7 @@ export const prerender = false;
 </AdminLayout>
 
 <script>
-	import { MAX_ALBUM_PHOTOS, saveDraft, saveDownloadedDraft, rememberDownloadedNames, savedNameFromUrl } from '../../scripts/album-draft';
+	import { MAX_ALBUM_PHOTOS, saveDraft, saveDownloadedDraft, rememberDownloadedNames, savedNameFromUrl, type CrawlSourceInfo } from '../../scripts/album-draft';
 	import { facebookExpiry, formatExpiry, untilExpiry } from '../../scripts/facebook-expiry';
 
 	const createButton = document.querySelector<HTMLButtonElement>('#create-album')!;
@@ -115,6 +115,18 @@ export const prerender = false;
 		return { title: first?.dataset.pageTitle ?? '', source: first?.dataset.page ?? '' };
 	};
 	const pagesInList = () => new Set(Array.from(list.children).map((li) => (li as HTMLElement).dataset.page)).size;
+	// The crawl history of the album that will be made: every address crawled whose images are still listed, with the address
+	// as typed (the original), where it led, and what kind of crawl it was. Several images from one crawl count once.
+	const sourcesInList = (): CrawlSourceInfo[] => {
+		const seen = new Map<string, CrawlSourceInfo>();
+		for (const li of Array.from(list.children) as HTMLElement[]) {
+			const kind = li.dataset.source === 'facebook' ? 'facebook' : 'web';
+			const url = li.dataset.original ?? '';
+			if (!url || seen.has(`${kind} ${url}`)) continue;
+			seen.set(`${kind} ${url}`, { kind, url, finalUrl: li.dataset.page ?? '', title: li.dataset.pageTitle ?? '' });
+		}
+		return [...seen.values()];
+	};
 
 	const form = document.querySelector<HTMLFormElement>('#crawl-form')!;
 	const input = document.querySelector<HTMLInputElement>('#target-url')!;
@@ -239,7 +251,7 @@ Create the album from links anyway? (“Download and create new album” keeps c
 		const photos = Array.from(list.children)
 			.slice(0, MAX_ALBUM_PHOTOS)
 			.map((item) => ({ url: (item as HTMLElement).dataset.url ?? '', alt: (item as HTMLElement).dataset.alt ?? '' }));
-		if (!saveDraft({ title: origin().title.trim().slice(0, 80), source: origin().source, photos })) {
+		if (!saveDraft({ title: origin().title.trim().slice(0, 80), source: origin().source, photos, sources: sourcesInList() })) {
 			setStatus('Could not hand the images over: browser storage is unavailable.', true);
 			return;
 		}
@@ -296,7 +308,7 @@ Create the album from links anyway? (“Download and create new album” keeps c
 	type Outcome = { ok: true; url: string; alt: string; existed: boolean } | { ok: false; label: string; error: string };
 	let controller: AbortController | null = null;
 	// What "Continue" carries over to the album form, and whether it was pressed.
-	let handover: { title: string; source: string; photos: Array<{ url: string; alt: string }> } | null = null;
+	let handover: { title: string; source: string; photos: Array<{ url: string; alt: string }>; sources: CrawlSourceInfo[] } | null = null;
 	let continuing = false;
 
 	// Hand over from one popup to the next with no fade, so the two never overlap and the dim background does not flash.
@@ -338,7 +350,7 @@ Create the album from links anyway? (“Download and create new album” keeps c
 		const bad = outcomes.filter((o): o is Extract<Outcome, { ok: false }> => !o.ok);
 		// A stored picture is named after its content, so one that appears twice is one file: carry it over once.
 		const unique = [...new Map(good.map((o) => [o.url, o])).values()];
-		handover = unique.length > 0 ? { title, source, photos: unique.map((o) => ({ url: o.url, alt: o.alt })) } : null;
+		handover = unique.length > 0 ? { title, source, photos: unique.map((o) => ({ url: o.url, alt: o.alt })), sources: sourcesInList() } : null;
 		continuing = false;
 
 		// Pictures that were already in the folder (from an earlier download, or listed twice) are not stored again.
@@ -473,7 +485,7 @@ Create the album from links anyway? (“Download and create new album” keeps c
 	};
 
 	// New images are ADDED to what is already listed (nothing is cleared); one that is already there is skipped.
-	const render = (data: CrawlResponse, source: 'web' | 'facebook') => {
+	const render = (data: CrawlResponse, source: 'web' | 'facebook', typedUrl: string) => {
 		const known = new Set(Array.from(list.children).map((li) => (li as HTMLElement).dataset.key ?? ''));
 		const found = data.images.filter((img) => isHttpUrl(img.url));
 		const images = found.filter((img) => {
@@ -492,6 +504,7 @@ Create the album from links anyway? (“Download and create new album” keeps c
 			item.dataset.key = keyOf(img.url);
 			item.dataset.source = source;
 			item.dataset.page = data.finalUrl;
+			item.dataset.original = typedUrl; // the address as typed: kept with the album as its crawl history
 			const expires = facebookExpiry(img.url);
 			if (expires !== null) item.dataset.expires = String(expires);
 			item.dataset.pageTitle = data.title;
@@ -586,7 +599,7 @@ Create the album from links anyway? (“Download and create new album” keeps c
 			});
 			const data = await response.json().catch(() => null);
 			if (!response.ok) throw new Error(data?.error ?? `Request failed (${response.status}).`);
-			render(data as CrawlResponse, source);
+			render(data as CrawlResponse, source, url);
 		} catch (err) {
 			const timedOut = err instanceof DOMException && err.name === 'TimeoutError';
 			setStatus(timedOut ? 'The crawl took too long and was stopped.' : err instanceof Error ? err.message : 'Crawl failed.', true);

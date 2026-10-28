@@ -11,10 +11,11 @@ const { photo, priority = false } = Astro.props;
 ---
 
 <figure class="card">
-	<a href="#" class="media" data-photo-id={photo.id} aria-label={`Open album: ${photo.albumTitle}`}>
+	<a href="#" class="media" data-photo-id={photo.id} data-no-save aria-label={`Open album: ${photo.albumTitle}`}>
 		<img
 			src={photo.thumb}
 			alt={photo.albumTitle}
+			draggable="false"
 			width={photo.width}
 			height={photo.height}
 			loading={priority ? 'eager' : 'lazy'}

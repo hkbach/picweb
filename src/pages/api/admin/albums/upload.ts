@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { transaction } from '../../../../server/db.ts';
-import { AlbumError, cleanCategoryIds, cleanTitle, insertAlbum, removeUnreferenced } from '../../../../server/albums.ts';
+import { AlbumError, cleanCategoryIds, cleanSources, cleanTitle, insertAlbum, removeUnreferenced } from '../../../../server/albums.ts';
 import { readUploadRequest, storeItems } from '../../../../server/uploads.ts';
 import { getStorage } from '../../../../server/storage.ts';
 import { json, rejectCrossOrigin, requireAdmin } from '../../../../server/admin-api.ts';
@@ -29,10 +29,11 @@ export const POST: APIRoute = async ({ request }) => {
 		const coverIndex = Number.isInteger(meta.coverIndex) ? meta.coverIndex : -1;
 		if (items.some((i) => i.existingUrl)) throw new AlbumError('Invalid request.');
 
+		const sources = cleanSources(meta.sources); // checked before anything is stored
 		keys = items.map((i) => i.key!);
 		const urls = await storeItems(storage, items);
 		const photos = items.map((i) => ({ url: urls.get(i.key!)!, alt: i.alt, width: i.width, height: i.height, storageKey: i.key! }));
-		const id = transaction(() => insertAlbum(admin.id, { title, type: 'uploaded', categoryIds, coverIndex, photos }));
+		const id = transaction(() => insertAlbum(admin.id, { title, type: 'uploaded', categoryIds, coverIndex, photos, sources }));
 		return json({ ok: true, id }, 201);
 	} catch (error) {
 		// Pictures stored for an album that was not created are removed again (unless another album uses them).

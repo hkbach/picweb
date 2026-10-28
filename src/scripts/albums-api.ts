@@ -1,4 +1,4 @@
-import { savedNameFromUrl } from './album-draft';
+import { savedNameFromUrl, type CrawlSourceInfo } from './album-draft';
 
 // Album service calls (see src/pages/api/admin/albums). Albums made from image links are stored as
 // addresses only. Albums made from files need photo storage on the server (STORAGE_DRIVER, see
@@ -20,6 +20,8 @@ export interface AlbumInput {
 	/** The photo shown as this album's thumbnail on the Homepage. Always one of `photos[].url`. */
 	coverUrl: string;
 	photos: AlbumPhotoInput[];
+	/** The pages crawled to collect the pictures (history kept with the album); empty for an album typed in by hand. */
+	sources?: CrawlSourceInfo[];
 }
 
 export type AlbumResult = { ok: true } | { ok: false; reason: 'not-configured' | 'error'; error?: string };
@@ -73,6 +75,8 @@ export interface UploadAlbumInput {
 	/** Index in `photos` of the Homepage thumbnail. */
 	coverIndex: number;
 	photos: UploadedPhotoInput[];
+	/** The pages crawled to collect the pictures that were downloaded (history kept with the album). */
+	sources?: CrawlSourceInfo[];
 }
 
 // The checks the Upload tab makes (type, size) only help the person using the form: the server repeats
@@ -95,7 +99,7 @@ export async function createAlbumFromUploads(album: UploadAlbumInput): Promise<A
 			photos.push({ ...common, storedName });
 		}
 	}
-	body.append('meta', JSON.stringify({ title: album.title, type: album.type, categoryIds: album.categoryIds, coverIndex: album.coverIndex, photos }));
+	body.append('meta', JSON.stringify({ title: album.title, type: album.type, categoryIds: album.categoryIds, coverIndex: album.coverIndex, photos, sources: album.sources ?? [] }));
 
 	return send('/api/admin/albums/upload', 'POST', body, false);
 }
