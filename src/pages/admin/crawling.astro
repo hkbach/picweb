@@ -49,6 +49,7 @@ export const prerender = false;
 		<div class="results-head">
 			<h2 id="results-title"></h2>
 			<div class="head-actions">
+				<button type="button" class="create quiet" id="clear-list">Clear list</button>
 				<button type="button" class="create" id="create-album">Create album from these images</button>
 				<button type="button" class="create solid" id="download-album">Download and create new album</button>
 			</div>
@@ -98,13 +99,20 @@ export const prerender = false;
 	import { MAX_ALBUM_PHOTOS, saveDraft, saveDownloadedDraft, rememberDownloadedNames, savedNameFromUrl } from '../../scripts/album-draft';
 
 	const createButton = document.querySelector<HTMLButtonElement>('#create-album')!;
+	const clearButton = document.querySelector<HTMLButtonElement>('#clear-list')!;
 	const downloadButton = document.querySelector<HTMLButtonElement>('#download-album')!;
 	const downloadDialog = document.querySelector<HTMLDialogElement>('#download-dialog')!;
 	const downloadText = document.querySelector<HTMLElement>('#download-text')!;
 	const downloadLimit = document.querySelector<HTMLElement>('#download-limit')!;
 	const albumNote = document.querySelector<HTMLElement>('#album-note')!;
 	// Remembers which page the images on screen came from, for the album draft.
-	let lastCrawl = { title: '', source: '' };
+	// Every listed image remembers the page it came from. The first image's page names the album, and the number of
+	// different pages among the images still listed is what the download question reports (removed images do not count).
+	const origin = () => {
+		const first = list.firstElementChild as HTMLElement | null;
+		return { title: first?.dataset.pageTitle ?? '', source: first?.dataset.page ?? '' };
+	};
+	const pagesInList = () => new Set(Array.from(list.children).map((li) => (li as HTMLElement).dataset.page)).size;
 
 	const form = document.querySelector<HTMLFormElement>('#crawl-form')!;
 	const input = document.querySelector<HTMLInputElement>('#target-url')!;
@@ -136,8 +144,6 @@ export const prerender = false;
 	const sourceInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="source"]'));
 	const sourceNote = document.querySelector<HTMLElement>('#source-note')!;
 	const selectedSource = () => (sourceInputs.find((r) => r.checked)?.value === 'facebook' ? 'facebook' : 'web') as 'web' | 'facebook';
-	// The kind of crawl the pictures on screen came from (the buttons below the results depend on it).
-	let shownSource: 'web' | 'facebook' = 'web';
 	const isFacebookUrl = (value: string) => {
 		try {
 			return /(^|\.)(facebook\.com|fb\.com)$/i.test(new URL(value).hostname);
@@ -192,19 +198,31 @@ export const prerender = false;
 		resultsTitle.textContent = count === 0 ? 'No images left' : `${count} image${count === 1 ? '' : 's'} found`;
 		// Facebook picture addresses expire, so an album that only stores the links would soon show nothing:
 		// pictures from Facebook can only be kept by downloading them.
-		createButton.hidden = count === 0 || shownSource === 'facebook';
+		const hasFacebook = list.querySelector('[data-source="facebook"]') !== null;
+		createButton.hidden = count === 0 || hasFacebook;
 		downloadButton.hidden = count === 0;
+		clearButton.hidden = count === 0;
 		const notes: string[] = [];
-		if (shownSource === 'facebook') notes.push('Facebook picture addresses stop working after a while, so use “Download and create new album” to keep copies.');
+		if (hasFacebook) notes.push('Facebook picture addresses stop working after a while, so use “Download and create new album” to keep copies.');
 		if (count > MAX_ALBUM_PHOTOS) notes.push(`An album holds up to ${MAX_ALBUM_PHOTOS} photos, so only the first ${MAX_ALBUM_PHOTOS} will be used.`);
 		albumNote.textContent = notes.join(' ');
 	};
+
+	clearButton.addEventListener('click', () => {
+		const count = list.children.length;
+		if (count === 0 || !window.confirm(`Remove all ${count} image${count === 1 ? '' : 's'} from the list?`)) return;
+		list.replaceChildren();
+		updateTitle();
+		results.hidden = true;
+		setStatus('The list was cleared.');
+		input.focus();
+	});
 
 	createButton.addEventListener('click', () => {
 		const photos = Array.from(list.children)
 			.slice(0, MAX_ALBUM_PHOTOS)
 			.map((item) => ({ url: (item as HTMLElement).dataset.url ?? '', alt: (item as HTMLElement).dataset.alt ?? '' }));
-		if (!saveDraft({ title: lastCrawl.title.trim().slice(0, 80), source: lastCrawl.source, photos })) {
+		if (!saveDraft({ title: origin().title.trim().slice(0, 80), source: origin().source, photos })) {
 			setStatus('Could not hand the images over: browser storage is unavailable.', true);
 			return;
 		}
@@ -216,7 +234,7 @@ export const prerender = false;
 		Array.from(list.children)
 			.slice(0, MAX_ALBUM_PHOTOS)
 			.map((item) => ({ url: (item as HTMLElement).dataset.url ?? '', alt: (item as HTMLElement).dataset.alt ?? '' }));
-	const albumTitle = () => lastCrawl.title.trim().slice(0, 80) || hostOf(lastCrawl.source);
+	const albumTitle = () => origin().title.trim().slice(0, 80) || hostOf(origin().source);
 	function hostOf(url: string) {
 		try {
 			return new URL(url).hostname;
@@ -232,7 +250,8 @@ export const prerender = false;
 	downloadButton.addEventListener('click', () => {
 		const total = list.children.length;
 		const used = Math.min(total, MAX_ALBUM_PHOTOS);
-		downloadText.textContent = `Download ${used} image${used === 1 ? '' : 's'} from ${hostOf(lastCrawl.source)} and create a new album called “${albumTitle()}”?`;
+		const where = pagesInList() > 1 ? `${pagesInList()} pages` : hostOf(origin().source);
+		downloadText.textContent = `Download ${used} image${used === 1 ? '' : 's'} from ${where} and create a new album called “${albumTitle()}”?`;
 		downloadLimit.hidden = total <= MAX_ALBUM_PHOTOS;
 		downloadLimit.textContent = `An album holds up to ${MAX_ALBUM_PHOTOS} photos, so only the first ${MAX_ALBUM_PHOTOS} of the ${total} images will be downloaded.`;
 		downloadDialog.showModal();
@@ -366,7 +385,7 @@ export const prerender = false;
 	document.querySelector('#download-confirm')!.addEventListener('click', async () => {
 		const photos = albumPhotos();
 		const title = albumTitle();
-		const source = lastCrawl.source;
+		const source = origin().source;
 		setBusy(true);
 		setStatus('');
 
@@ -424,16 +443,39 @@ export const prerender = false;
 	});
 
 	// Built with DOM methods and textContent only, because every value comes from a third-party page.
-	const render = (data: CrawlResponse) => {
-		list.replaceChildren();
-		lastCrawl = { title: data.title, source: data.finalUrl };
-		const images = data.images.filter((img) => isHttpUrl(img.url));
+	// What makes two images "the same": the same address, or (Facebook) the same picture file whatever its size or signature.
+	const keyOf = (url: string) => {
+		try {
+			const u = new URL(url);
+			if (/(^|\.)fbcdn\.net$/i.test(u.hostname)) return `fb:${u.pathname.split('/').pop() ?? ''}`;
+			u.hash = '';
+			return u.href;
+		} catch {
+			return url;
+		}
+	};
+
+	// New images are ADDED to what is already listed (nothing is cleared); one that is already there is skipped.
+	const render = (data: CrawlResponse, source: 'web' | 'facebook') => {
+		const known = new Set(Array.from(list.children).map((li) => (li as HTMLElement).dataset.key ?? ''));
+		const found = data.images.filter((img) => isHttpUrl(img.url));
+		const images = found.filter((img) => {
+			const key = keyOf(img.url);
+			if (known.has(key)) return false;
+			known.add(key);
+			return true;
+		});
+		const skipped = found.length - images.length;
 
 		for (const img of images) {
 			const item = document.createElement('li');
 			item.className = 'card';
 			item.dataset.url = img.url;
 			item.dataset.alt = img.alt;
+			item.dataset.key = keyOf(img.url);
+			item.dataset.source = source;
+			item.dataset.page = data.finalUrl;
+			item.dataset.pageTitle = data.title;
 
 			// Clicking a thumbnail opens the original; the address itself is not shown.
 			const link = document.createElement('a');
@@ -451,14 +493,14 @@ export const prerender = false;
 
 			const size = document.createElement('p');
 			size.className = 'size';
-			const known = img.width > 0 && img.height > 0;
-			size.textContent = known ? `${img.width} × ${img.height}` : 'Loading…';
+			const sized = img.width > 0 && img.height > 0;
+			size.textContent = sized ? `${img.width} × ${img.height}` : 'Loading…';
 
 			// The browser's own measurement is the most reliable one, so it wins once the image loads.
 			pic.addEventListener('load', () => {
 				if (pic.naturalWidth > 0 && pic.naturalHeight > 0) {
 					size.textContent = `${pic.naturalWidth} × ${pic.naturalHeight}`;
-				} else if (!known) {
+				} else if (!sized) {
 					size.textContent = 'Size unknown';
 				}
 			});
@@ -490,10 +532,12 @@ export const prerender = false;
 		updateTitle();
 		results.hidden = false;
 
-		const notes = [`Crawled ${data.finalUrl}`];
+		const total = list.children.length;
+		const notes = [`Crawled ${data.finalUrl}: added ${images.length} new image${images.length === 1 ? '' : 's'}${total !== images.length ? `, ${total} in the list now` : ''}.`];
+		if (skipped > 0) notes.push(`${skipped} already in the list ${skipped === 1 ? 'was' : 'were'} skipped.`);
 		if (data.blockedRequests > 0) notes.push(`${data.blockedRequests} request(s) to blocked addresses were refused.`);
 		if (data.note) notes.push(data.note);
-		if (images.length === 0) notes.push('No images matched.');
+		if (found.length === 0) notes.push('No images matched.');
 		setStatus(notes.join(' '));
 	};
 
@@ -511,7 +555,6 @@ export const prerender = false;
 
 		button.disabled = true;
 		button.textContent = 'Crawling…';
-		results.hidden = true;
 		setStatus(source === 'facebook' ? 'Reading the post and going through its photos one by one. This can take a few minutes…' : 'Crawling, this can take up to a minute…');
 
 		try {
@@ -524,8 +567,7 @@ export const prerender = false;
 			});
 			const data = await response.json().catch(() => null);
 			if (!response.ok) throw new Error(data?.error ?? `Request failed (${response.status}).`);
-			shownSource = source;
-			render(data as CrawlResponse);
+			render(data as CrawlResponse, source);
 		} catch (err) {
 			const timedOut = err instanceof DOMException && err.name === 'TimeoutError';
 			setStatus(timedOut ? 'The crawl took too long and was stopped.' : err instanceof Error ? err.message : 'Crawl failed.', true);
@@ -736,6 +778,16 @@ export const prerender = false;
 	.create.solid {
 		background: var(--text);
 		color: #fff;
+	}
+	/* "Clear list" is the quietest of the three. */
+	.create.quiet {
+		border-color: var(--border);
+		color: var(--muted);
+	}
+	.create.quiet:hover {
+		background: var(--bg-soft);
+		border-color: var(--text);
+		color: var(--text);
 	}
 	.create.solid:hover:not(:disabled) {
 		background: #333;

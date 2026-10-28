@@ -67,6 +67,8 @@ How access works:
 - Use HTTPS in production (the session cookie is `Secure` there).
 - Not done yet: Google / X / Facebook login (the buttons are display only), an email telling a user that an administrator changed their password, and a cloud storage driver.
 
+Admin → Crawling keeps the list of images between crawls: a new crawl **adds** its images to the list (an image already listed, by address or, for Facebook, by picture file, is skipped) and "Clear list" empties it. The album made from the list is named after the first page crawled into it.
+
 Admin → Crawling can crawl **Web** (any page) or **Facebook** (one public post, pasted as a link such as `https://www.facebook.com/share/p/...`). For Facebook the crawler closes the "Log in" suggestion, clicks a photo to open Facebook's photo viewer and presses "Next photo" through the post's photos (at most 50, one at a time with a short pause); the viewer shows each at a much larger size (about 1500 px) than the post page (about 590 px). A picture seen more than once is kept once. It never signs in and sends no cookie or account detail, so private posts and groups cannot be read, and it stops, keeping what it has, if Facebook asks for a login. The browser asks for English because the viewer is found by its English button names. Facebook picture addresses expire, so they can only be kept with "Download and create new album". Facebook's terms limit automated collection and the pictures belong to their authors: only use posts you have the right to use. Command line: `npm run crawl -- <url> --facebook`.
 
 The crawler's browser sends all its traffic through a local proxy (`crawler/egress-proxy.ts`). The proxy refuses connections to private and reserved addresses.
