@@ -1,9 +1,10 @@
 ---
 import AccountLayout from '../../layouts/AccountLayout.astro';
 import PhotoTiles from '../../components/PhotoTiles.astro';
-import { likedPhotos } from '../../data/account';
+import { listLiked } from '../../server/repo.ts';
 
 export const prerender = false;
+const likedPhotos = listLiked(Astro.locals.user!.id);
 ---
 
 <AccountLayout title="Liked photos" heading="Liked photos">

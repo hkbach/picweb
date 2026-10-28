@@ -1,27 +1,43 @@
 import type { APIRoute } from 'astro';
-import { adminApiEnabled, json, rejectCrossOrigin, requireAdmin } from '../../../../server/admin-api.ts';
+import { transaction } from '../../../../server/db.ts';
+import { AlbumError, cleanCategoryIds, cleanTitle, insertAlbum, removeUnreferenced } from '../../../../server/albums.ts';
+import { readUploadRequest, storeItems } from '../../../../server/uploads.ts';
+import { getStorage } from '../../../../server/storage.ts';
+import { json, rejectCrossOrigin, requireAdmin } from '../../../../server/admin-api.ts';
 
-// The place where the host will be integrated: the Upload tab of Create new album posts a finished album
-// here. Until storage exists this answers 501 ("not implemented"), which the page shows as "no album
-// service is connected yet" and, importantly, never treats as success.
-//
-// What the real implementation must do (the page deletes its downloaded copies right after a 200):
-//  - read the multipart request: a "meta" JSON part (title, type, categoryIds, coverIndex, photos[]) and one
-//    file part per device photo, named by photos[i].part,
-//  - for photos[i].storedName, copy the file from photos_dowloaded/ on the server side (the name must match
-//    SAVED_NAME in src/server/admin-api.ts; never build a path from anything else),
-//  - validate every file by its content, size and count as downloads do (crawler/download-image.ts), and
-//    ignore the file names the browser sent,
-//  - store the files on the host and create the album as one unit: answer 200 only when the album and ALL of
-//    its photos are saved, and nothing is left half-done on an error,
-//  - require an authenticated administrator.
+// Creates an album from the Upload tab. The page deletes its downloaded copies right after a 200, so a 200 means
+// the album AND every photo are stored; on any other answer nothing was created and the page keeps its copies.
+//  - Nothing is stored until a storage driver is configured (see src/server/storage.ts): without one this
+//    answers 501 and the page says so.
+//  - The multipart request is read in full and every file is checked by its content before anything is stored.
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request }) => {
-	if (!adminApiEnabled) return json({ error: 'This is disabled on this server.' }, 403);
 	const crossOrigin = rejectCrossOrigin(request);
 	if (crossOrigin) return crossOrigin;
 	const admin = requireAdmin(request);
 	if (admin instanceof Response) return admin;
-	return json({ error: 'Album storage is not connected yet.' }, 501);
+	const storage = getStorage();
+	if (!storage) return json({ error: 'Photo storage is not configured on this server.' }, 501);
+
+	let keys: string[] = [];
+	try {
+		const { meta, items } = await readUploadRequest(request);
+		if (meta.type !== 'uploaded') throw new AlbumError('Invalid request.');
+		const title = cleanTitle(meta.title);
+		const categoryIds = cleanCategoryIds(meta.categoryIds);
+		const coverIndex = Number.isInteger(meta.coverIndex) ? meta.coverIndex : -1;
+		if (items.some((i) => i.existingUrl)) throw new AlbumError('Invalid request.');
+
+		keys = items.map((i) => i.key!);
+		const urls = await storeItems(storage, items);
+		const photos = items.map((i) => ({ url: urls.get(i.key!)!, alt: i.alt, width: i.width, height: i.height, storageKey: i.key! }));
+		const id = transaction(() => insertAlbum(admin.id, { title, type: 'uploaded', categoryIds, coverIndex, photos }));
+		return json({ ok: true, id }, 201);
+	} catch (error) {
+		// Pictures stored for an album that was not created are removed again (unless another album uses them).
+		await removeUnreferenced(keys);
+		if (error instanceof AlbumError) return json({ error: error.message }, error.status);
+		throw error;
+	}
 };

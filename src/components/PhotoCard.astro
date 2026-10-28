@@ -1,5 +1,5 @@
 ---
-import { photoUrl, type Photo } from '../data/photos';
+import type { Photo } from '../server/repo.ts';
 
 interface Props {
 	photo: Photo;
@@ -11,7 +11,7 @@ const { photo } = Astro.props;
 <figure class="card">
 	<a href="#" class="media" data-photo-id={photo.id} aria-label={`Open album: ${photo.alt}`}>
 		<img
-			src={photoUrl(photo)}
+			src={photo.thumb}
 			alt={photo.alt}
 			width={photo.width}
 			height={photo.height}
@@ -20,11 +20,11 @@ const { photo } = Astro.props;
 		/>
 		<div class="overlay">
 			<div class="top">
-				<span class="chip icon" data-requires-login title="Like">♡</span>
-				<span class="chip icon" data-requires-login title="Add to collection">＋</span>
+				<span class="chip icon" data-requires-login data-action="like" role="button" title="Like" aria-label="Like">♡</span>
+				<span class="chip icon" data-requires-login data-action="favorite" role="button" title="Add to collection" aria-label="Add to collection">＋</span>
 			</div>
 			<div class="bottom">
-				<span class="chip download" data-requires-login title="Download">
+				<span class="chip download" data-requires-login data-action="download" role="button" title="Download">
 					<span aria-hidden="true">↓</span>
 					<span class="label-user">Download</span>
 					<span class="label-guest">Login to download</span>
@@ -33,18 +33,6 @@ const { photo } = Astro.props;
 		</div>
 	</a>
 </figure>
-
-<script>
-	// Like / add to collection / download need an account: guests get the login popup instead.
-	document.addEventListener('click', (e) => {
-		const target = e.target as HTMLElement;
-		if (!target.closest('[data-requires-login]')) return;
-		e.preventDefault();
-		if (document.documentElement.dataset.auth === 'guest') {
-			document.querySelector<HTMLElement>('[data-open-login]')?.click();
-		}
-	});
-</script>
 
 <style>
 	.card {
@@ -147,5 +135,8 @@ const { photo } = Astro.props;
 	}
 	.chip:hover {
 		color: var(--text);
+	}
+	.chip[aria-pressed='true'] {
+		color: #e0245e;
 	}
 </style>

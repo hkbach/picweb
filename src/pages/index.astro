@@ -8,8 +8,12 @@ import PhotoGrid from '../components/PhotoGrid.astro';
 import LoginModal from '../components/LoginModal.astro';
 import BackToTop from '../components/BackToTop.astro';
 import AlbumModal from '../components/AlbumModal.astro';
-import { photos } from '../data/photos';
-import { categories } from '../data/categories';
+import { listCategories, listPhotos } from '../server/repo.ts';
+
+// Rendered on demand: what is shown comes from the database (albums, photos and categories an administrator manages).
+export const prerender = false;
+const photos = listPhotos();
+const categories = listCategories();
 ---
 
 <Layout title="Picweb – Free high-resolution photos">

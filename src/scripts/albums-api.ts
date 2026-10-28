@@ -1,9 +1,8 @@
 import { savedNameFromUrl } from './album-draft';
 
-// Album service calls. No backend or database exists yet, so nothing here can really store an album.
-// Replace the body of createAlbum with a request to the real service; the Create new album page
-// already handles each result below. (createAlbumFromUploads is the exception: it already posts to a
-// server endpoint, which answers "not implemented" until the host is integrated.)
+// Album service calls (see src/pages/api/admin/albums). Albums made from image links are stored as
+// addresses only. Albums made from files need photo storage on the server (STORAGE_DRIVER, see
+// src/server/storage.ts): until it is configured those calls answer 501, reported here as 'not-configured'.
 export interface AlbumPhotoInput {
 	url: string;
 	alt: string;
@@ -23,10 +22,23 @@ export interface AlbumInput {
 	photos: AlbumPhotoInput[];
 }
 
-export type AlbumResult = { ok: true } | { ok: false; reason: 'not-configured' | 'error' };
+export type AlbumResult = { ok: true } | { ok: false; reason: 'not-configured' | 'error'; error?: string };
 
-export async function createAlbum(_album: AlbumInput): Promise<AlbumResult> {
-	return { ok: false, reason: 'not-configured' };
+// Sends a request and turns the answer into an AlbumResult. A 501 means the server has no photo storage yet.
+async function send(url: string, method: string, body: BodyInit, json: boolean): Promise<AlbumResult> {
+	try {
+		const response = await fetch(url, { method, headers: json ? { 'content-type': 'application/json' } : undefined, body, credentials: 'same-origin' });
+		if (response.ok) return { ok: true };
+		const data = await response.json().catch(() => ({}));
+		const error = typeof data.error === 'string' ? data.error : undefined;
+		return response.status === 501 ? { ok: false, reason: 'not-configured', error } : { ok: false, reason: 'error', error };
+	} catch {
+		return { ok: false, reason: 'error' };
+	}
+}
+
+export async function createAlbum(album: AlbumInput): Promise<AlbumResult> {
+	return send('/api/admin/albums', 'POST', JSON.stringify(album), true);
 }
 
 /** Changes to an existing album made from image links. The album keeps its original type. */
@@ -34,8 +46,8 @@ export interface AlbumUpdateInput extends AlbumInput {
 	id: number;
 }
 
-export async function updateAlbum(_album: AlbumUpdateInput): Promise<AlbumResult> {
-	return { ok: false, reason: 'not-configured' };
+export async function updateAlbum(album: AlbumUpdateInput): Promise<AlbumResult> {
+	return send(`/api/admin/albums/${album.id}`, 'PUT', JSON.stringify(album), true);
 }
 
 export interface UploadedPhotoInput {
@@ -63,12 +75,11 @@ export interface UploadAlbumInput {
 	photos: UploadedPhotoInput[];
 }
 
-// The checks the Upload tab makes (type, size) only help the person using the form. A real service
-// must repeat them on the server and also verify the file content, not trust the browser's file type.
+// The checks the Upload tab makes (type, size) only help the person using the form: the server repeats
+// them and verifies each file's content (src/pages/api/admin/albums/upload.ts).
 //
-// Sends the album to the server as one multipart request (see src/pages/api/admin/albums/upload.ts, where
-// the host is to be integrated). `{ ok: true }` must mean the album AND every photo are safely stored: the
-// page deletes its downloaded copies as soon as it sees it. Anything else leaves them untouched.
+// Sends the album to the server as one multipart request. `{ ok: true }` means the album AND every photo are
+// stored: the page deletes its downloaded copies as soon as it sees it. Anything else leaves them untouched.
 export async function createAlbumFromUploads(album: UploadAlbumInput): Promise<AlbumResult> {
 	const body = new FormData();
 	const photos = [];
@@ -86,14 +97,7 @@ export async function createAlbumFromUploads(album: UploadAlbumInput): Promise<A
 	}
 	body.append('meta', JSON.stringify({ title: album.title, type: album.type, categoryIds: album.categoryIds, coverIndex: album.coverIndex, photos }));
 
-	try {
-		const response = await fetch('/api/admin/albums/upload', { method: 'POST', body });
-		if (response.ok) return { ok: true };
-		// 501: the server has no album storage yet.
-		return { ok: false, reason: response.status === 501 ? 'not-configured' : 'error' };
-	} catch {
-		return { ok: false, reason: 'error' };
-	}
+	return send('/api/admin/albums/upload', 'POST', body, false);
 }
 
 /** A photo in an edited uploaded album: either already stored (existingUrl) or newly chosen (file). */
@@ -116,6 +120,18 @@ export interface UploadAlbumUpdateInput {
 	photos: UpdatedUploadPhoto[];
 }
 
-export async function updateAlbumWithUploads(_album: UploadAlbumUpdateInput): Promise<AlbumResult> {
-	return { ok: false, reason: 'not-configured' };
+export async function updateAlbumWithUploads(album: UploadAlbumUpdateInput): Promise<AlbumResult> {
+	const body = new FormData();
+	const photos = [];
+	for (const [i, photo] of album.photos.entries()) {
+		const common = { alt: photo.alt, width: photo.width, height: photo.height };
+		if (photo.file) {
+			body.append(`file${i}`, photo.file, `file${i}`);
+			photos.push({ ...common, part: `file${i}` });
+		} else {
+			photos.push({ ...common, existingUrl: photo.existingUrl });
+		}
+	}
+	body.append('meta', JSON.stringify({ title: album.title, type: album.type, categoryIds: album.categoryIds, coverIndex: album.coverIndex, photos }));
+	return send(`/api/admin/albums/${album.id}/upload`, 'PUT', body, false);
 }

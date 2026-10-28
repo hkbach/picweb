@@ -1,8 +1,9 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { albums, albumTypeLabels } from '../../../data/albums';
-import { photoUrl } from '../../../data/photos';
-import { categories } from '../../../data/categories';
+import { albumTypeLabels, listAlbums, listCategories } from '../../../server/repo.ts';
+
+const albums = listAlbums();
+const categories = listCategories();
 
 // Category names for an album, in the album's own order. An id that no longer exists is skipped.
 const categoryName = new Map(categories.map((c) => [c.id, c.name]));
@@ -44,7 +45,7 @@ export const prerender = false;
 							<tr>
 								<td class="col-cover">
 									<img
-										src={photoUrl(album.cover, 160)}
+										src={album.cover.thumb}
 										alt=""
 										width="56"
 										height="56"

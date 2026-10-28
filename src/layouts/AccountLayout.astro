@@ -2,7 +2,7 @@
 import Layout from './Layout.astro';
 import Header from '../components/Header.astro';
 import AlbumModal from '../components/AlbumModal.astro';
-import { photos } from '../data/photos';
+import { listPhotos } from '../server/repo.ts';
 
 interface Props {
 	title: string;
@@ -50,7 +50,7 @@ const items = [
 			<slot />
 		</main>
 	</div>
-	<AlbumModal photos={photos} />
+	<AlbumModal photos={listPhotos()} />
 </Layout>
 
 <script>

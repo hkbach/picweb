@@ -38,15 +38,33 @@ All commands are run from the root of the project, from a terminal:
 | `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
 | `npm run astro -- --help` | Get help using the Astro CLI                     |
 
-## Admin API settings (crawl, download, downloaded photos)
+## Accounts, data and settings
 
-These endpoints have **no authentication yet**. Do not expose them to the internet until admin login exists.
+Everything the site stores is in one SQLite file, `data/picweb.db` (folder set by `DATA_DIR`, default `./data` next to where the server starts). It holds the accounts, so **back that folder up** and keep it out of git (it is in `.gitignore`).
+
+Set up a new database:
+
+```sh
+npm run create-admin -- admin@example.com "First" "Last"   # asks for the password (12+ characters) at a hidden prompt
+npm run seed:demo                                          # development only: made-up albums, users, categories
+```
 
 | Variable | Effect |
 | :--- | :--- |
-| `CRAWL_API_ENABLED=true` | Turns the admin endpoints on outside `astro dev` (off by default). |
-| `ADMIN_ALLOWED_HOSTS` | Comma-separated host names the admin endpoints answer to, for example `admin.example.com`. Outside `astro dev`, every request is refused while this is unset. Under `astro dev` only `localhost`, `127.0.0.1` and `[::1]` are accepted. |
-| `CRAWLER_CHROMIUM_SANDBOX=false` | Runs the crawler's browser without the Chromium sandbox, for hosts that cannot run it (some containers). This is a known risk. Leave it unset everywhere else. |
+| `DATA_DIR` | Where the database (and, with the local storage driver, `uploads/`) live. |
+| `ADMIN_PASSWORD` | Lets `create-admin` run without a prompt (automated setups only). |
+| `CRAWL_API_ENABLED=true` | Turns on the Crawling / Download / Downloaded-photos endpoints outside `astro dev` (off by default). |
+| `ADMIN_ALLOWED_HOSTS` | Comma-separated host names the admin endpoints answer to, for example `admin.example.com`. Outside `astro dev`, every admin endpoint refuses requests while this is unset. |
+| `STORAGE_DRIVER` | Where uploaded pictures are kept. Unset = nothing is stored and the upload endpoints answer 501. `local` = `DATA_DIR/uploads`, served from `/api/media/` (development, or a single server). A cloud driver (S3, Azure Blob, ...) is added in `src/server/storage.ts`. |
+| `CRAWLER_CHROMIUM_SANDBOX=false` | Runs the crawler's browser without the Chromium sandbox, for hosts that cannot run it. A known risk: leave it unset everywhere else. |
+
+How access works:
+
+- Visitors can register and sign in (email and password; passwords are stored as scrypt hashes). Sessions are random tokens in an HttpOnly cookie, kept server-side only as a SHA-256, and last 7 days.
+- `/account/*` needs a signed-in user. `/admin/*` and every `/api/admin/*` endpoint need an administrator. An administrator is only made with `create-admin`.
+- Login attempts and sign-ups are rate limited **in memory, per server process**. Behind a reverse proxy every visitor can look like one address: configure the proxy to pass the real client address, or move the limiter to a shared store.
+- Use HTTPS in production (the session cookie is `Secure` there).
+- Not done yet: Google / X / Facebook login (the buttons are display only), an email telling a user that an administrator changed their password, and a cloud storage driver.
 
 The crawler's browser sends all its traffic through a local proxy (`crawler/egress-proxy.ts`). The proxy refuses connections to private and reserved addresses.
 

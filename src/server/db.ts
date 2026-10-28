@@ -49,6 +49,51 @@ const MIGRATIONS: string[] = [
 		detail TEXT
 	);
 	`,
+	`
+	CREATE TABLE albums (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		title TEXT NOT NULL,
+		-- How it was made: from image links (crawling) or from files (uploaded).
+		type TEXT NOT NULL CHECK (type IN ('crawling', 'uploaded')),
+		-- The photo shown as the album's thumbnail. Always one of the album's own photos (checked in code).
+		cover_photo_id INTEGER,
+		created_at TEXT NOT NULL
+	);
+	CREATE TABLE album_categories (
+		album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+		category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+		PRIMARY KEY (album_id, category_id)
+	);
+	CREATE TABLE photos (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+		position INTEGER NOT NULL,
+		-- The full picture, and a smaller one for grids (null = use the full one).
+		url TEXT NOT NULL,
+		thumb_url TEXT,
+		alt TEXT NOT NULL,
+		width INTEGER NOT NULL,
+		height INTEGER NOT NULL,
+		-- Set for pictures this site stored itself (uploads); null for pictures that stay on another site.
+		storage_key TEXT
+	);
+	CREATE INDEX photos_album ON photos(album_id, position);
+	`,
+	`
+	-- A user's liked photos and their favorites ("Add to collection"). They go when the user or the photo goes.
+	CREATE TABLE likes (
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (user_id, photo_id)
+	);
+	CREATE TABLE favorites (
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (user_id, photo_id)
+	);
+	`,
 ];
 
 type Db = DatabaseSync;

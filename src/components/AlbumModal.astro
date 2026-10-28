@@ -1,5 +1,5 @@
 ---
-import { fullPhotoUrl, photoUrl, type Photo } from '../data/photos';
+import type { Photo } from '../server/repo.ts';
 
 interface Props {
 	photos: Photo[];
@@ -11,8 +11,8 @@ const { photos } = Astro.props;
 const albums: Record<number, { title: string; photos: Array<{ id: number; src: string; thumb: string; alt: string }> }> = {};
 const photoAlbum: Record<number, number> = {};
 for (const p of photos) {
-	albums[p.album] ??= { title: `Album ${p.album}`, photos: [] };
-	albums[p.album].photos.push({ id: p.id, src: fullPhotoUrl(p), thumb: photoUrl(p, 160), alt: p.alt });
+	albums[p.album] ??= { title: p.albumTitle, photos: [] };
+	albums[p.album].photos.push({ id: p.id, src: p.src, thumb: p.thumb, alt: p.alt });
 	photoAlbum[p.id] = p.album;
 }
 const json = JSON.stringify({ albums, photoAlbum }).replace(/</g, '\\u003c');
@@ -42,11 +42,11 @@ const json = JSON.stringify({ albums, photoAlbum }).replace(/</g, '\\u003c');
 
 		<!-- Same buttons and login rule as on the thumbnails (see PhotoCard). -->
 		<div class="actions actions-top">
-			<button type="button" class="action" data-requires-login title="Like" aria-label="Like">♡</button>
-			<button type="button" class="action" data-requires-login title="Add to collection" aria-label="Add to collection">＋</button>
+			<button type="button" class="action" data-requires-login data-action="like" title="Like" aria-label="Like">♡</button>
+			<button type="button" class="action" data-requires-login data-action="favorite" title="Add to collection" aria-label="Add to collection">＋</button>
 		</div>
 		<div class="actions actions-bottom">
-			<button type="button" class="action download" data-requires-login title="Download">
+			<button type="button" class="action download" data-requires-login data-action="download" title="Download">
 				<span aria-hidden="true">↓</span>
 				<span class="label-user">Download</span>
 				<span class="label-guest">Login to download</span>
@@ -119,6 +119,7 @@ const json = JSON.stringify({ albums, photoAlbum }).replace(/</g, '\\u003c');
 		const show = (i: number) => {
 			index = (i + items.length) % items.length;
 			const photo = items[index];
+			dialog.dataset.photoId = String(photo.id);
 			image.src = photo.src;
 			image.alt = photo.alt;
 			count.textContent = `${index + 1} / ${items.length}`;
@@ -126,6 +127,8 @@ const json = JSON.stringify({ albums, photoAlbum }).replace(/</g, '\\u003c');
 				t.setAttribute('aria-current', String(n === index));
 				if (n === index) t.scrollIntoView({ block: 'nearest', inline: 'center' });
 			});
+			// The like / collection buttons belong to the photo now shown.
+			document.dispatchEvent(new CustomEvent('album:photo'));
 		};
 
 		const open = (photoId: number) => {
@@ -351,6 +354,9 @@ const json = JSON.stringify({ albums, photoAlbum }).replace(/</g, '\\u003c');
 	.action:hover {
 		background: #fff;
 		color: var(--text);
+	}
+	.action[aria-pressed='true'] {
+		color: #e0245e;
 	}
 	.action:active {
 		transform: scale(0.96);

@@ -1,9 +1,10 @@
 ---
 import AccountLayout from '../../layouts/AccountLayout.astro';
 import PhotoTiles from '../../components/PhotoTiles.astro';
-import { favoritePhotos } from '../../data/account';
+import { listFavorites } from '../../server/repo.ts';
 
 export const prerender = false;
+const favoritePhotos = listFavorites(Astro.locals.user!.id);
 ---
 
 <AccountLayout title="Favorites" heading="Favorites">

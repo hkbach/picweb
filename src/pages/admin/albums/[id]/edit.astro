@@ -1,11 +1,10 @@
 ---
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import AlbumForms from '../../../../components/AlbumForms.astro';
-import { albums, albumTypeLabels } from '../../../../data/albums';
-import { fullPhotoUrl } from '../../../../data/photos';
+import { albumTypeLabels, getAlbum } from '../../../../server/repo.ts';
 
-// Loaded by id on every request (placeholder data until the album service is connected).
-const album = albums.find((a) => String(a.id) === Astro.params.id);
+// Loaded by id on every request.
+const album = /^\d+$/.test(Astro.params.id ?? '') ? getAlbum(Number(Astro.params.id)) : undefined;
 if (!album) return new Response('Album not found', { status: 404 });
 
 const initial = {
@@ -13,7 +12,7 @@ const initial = {
 	title: album.title,
 	categoryIds: album.categoryIds,
 	coverIndex: Math.max(0, album.photos.findIndex((p) => p.id === album.cover.id)),
-	photos: album.photos.map((p) => ({ url: fullPhotoUrl(p), alt: p.alt })),
+	photos: album.photos.map((p) => ({ url: p.src, alt: p.alt })),
 };
 
 // Rendered on demand so the middleware can require an administrator before anything is sent.

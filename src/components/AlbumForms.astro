@@ -1,7 +1,8 @@
 ---
 import CategoryPicker from './CategoryPicker.astro';
-import { categories } from '../data/categories';
-import type { AlbumType } from '../data/albums';
+import { listCategories, type AlbumType } from '../server/repo.ts';
+
+const categories = listCategories();
 
 export interface InitialAlbum {
 	id: number;
@@ -435,10 +436,7 @@ const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\
 			reset();
 			return say(`Album “${title}” created with ${photos.length} photo${photos.length === 1 ? '' : 's'}.`);
 		}
-		if (result.reason === 'not-configured') {
-			return say(initial ? 'The changes were not saved: no album service is connected yet.' : 'The album was not saved: no album service is connected yet.', true);
-		}
-		say(initial ? 'The changes could not be saved. Please try again.' : 'The album could not be saved. Please try again.', true);
+		say(result.error ?? (initial ? 'The changes could not be saved. Please try again.' : 'The album could not be saved. Please try again.'), true);
 	});
 	}
 </script>
@@ -766,9 +764,9 @@ const initialJson = album ? JSON.stringify({ ...album, type }).replace(/</g, '\\
 		if (!result.ok) {
 			submitButton.disabled = false;
 			if (result.reason === 'not-configured') {
-				return say(initial ? 'The changes were not saved: no album service is connected yet.' : 'The album was not saved: no album service is connected yet.', true);
+				return say(`${initial ? 'The changes were' : 'The album was'} not saved: photo storage is not set up on this server yet, so uploads cannot be kept. Nothing was changed.`, true);
 			}
-			return say(initial ? 'The changes could not be saved. Please try again.' : 'The album could not be saved. Please try again.', true);
+			return say(result.error ?? (initial ? 'The changes could not be saved. Please try again.' : 'The album could not be saved. Please try again.'), true);
 		}
 		if (initial) {
 			submitButton.disabled = false;
