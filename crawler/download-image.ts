@@ -86,8 +86,13 @@ function get(url: URL, timeoutMs: number, allowPrivate: boolean, signal: AbortSi
 	});
 }
 
-export async function downloadImage(sourceUrl: string, options: DownloadOptions): Promise<DownloadedImage> {
-	const { maxBytes, timeoutMs, totalTimeoutMs, maxFiles, maxTotalBytes } = { ...DEFAULTS, ...options };
+/**
+ * Fetches ONE picture and returns its bytes and what it really is, with every protection the downloader has (private
+ * addresses refused, DNS checked at connect time, redirects followed by hand, size and time caps, content sniffed).
+ * It saves nothing: downloadImage saves to a folder, and converting an album sends the bytes to the photo storage.
+ */
+export async function fetchImage(sourceUrl: string, options: Pick<DownloadOptions, 'maxBytes' | 'timeoutMs' | 'totalTimeoutMs' | 'allowPrivate'> = {}): Promise<{ body: Buffer; type: DownloadedImage['type'] }> {
+	const { maxBytes, timeoutMs, totalTimeoutMs } = { ...DEFAULTS, ...options };
 	const allowPrivate = options.allowPrivate === true;
 
 	let url: URL;
@@ -154,6 +159,12 @@ export async function downloadImage(sourceUrl: string, options: DownloadOptions)
 
 	const type = sniffImage(body);
 	if (!type) throw new DownloadError('Not a supported image (JPG, PNG, GIF or WebP).');
+	return { body, type };
+}
+
+export async function downloadImage(sourceUrl: string, options: DownloadOptions): Promise<DownloadedImage> {
+	const { maxFiles, maxTotalBytes } = { ...DEFAULTS, ...options };
+	const { body, type } = await fetchImage(sourceUrl, options);
 
 	await mkdir(options.dir, { recursive: true });
 

@@ -1,7 +1,9 @@
 ---
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import AlbumForms from '../../../../components/AlbumForms.astro';
+import ConvertAlbum from '../../../../components/ConvertAlbum.astro';
 import { albumTypeLabels, getAlbum, listAlbumSources } from '../../../../server/repo.ts';
+import { getStorage } from '../../../../server/storage.ts';
 
 // Loaded by id on every request.
 const album = /^\d+$/.test(Astro.params.id ?? '') ? getAlbum(Number(Astro.params.id)) : undefined;
@@ -30,6 +32,11 @@ export const prerender = false;
 		· Status <strong>{album.status === 'active' ? 'Active' : 'Deactivated'}</strong>
 	</p>
 	{album.status === 'deactivated' && <p class="note off">This album is deactivated, so it is hidden from the site. Activate it from the Albums list to show it again.</p>}
+	{album.convertedFrom !== null && (
+		<p class="note">
+			This album is a converted copy of <a href={`/admin/albums/${album.convertedFrom}/edit`}>album #{album.convertedFrom}</a>, whose pictures were uploaded to Cloudflare.
+		</p>
+	)}
 	<p class="note">
 		An album keeps the type it was created with, so it is edited the same way: {
 			album.type === 'crawling' ? 'by its image links.' : 'by its uploaded photos.'
@@ -68,6 +75,8 @@ export const prerender = false;
 			)
 		}
 	</section>
+
+	{album.type === 'crawling' && <ConvertAlbum albumId={album.id} storageReady={getStorage() !== null} photoCount={album.photos.length} convertedTo={album.convertedTo} />}
 
 	<AlbumForms mode="edit" type={album.type} album={initial} />
 </AdminLayout>

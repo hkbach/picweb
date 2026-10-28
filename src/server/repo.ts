@@ -64,6 +64,10 @@ export interface Album {
 	type: AlbumType;
 	/** A deactivated album is hidden from the public site; only a deactivated album can be deleted. */
 	status: AlbumStatus;
+	/** The album this one is a converted copy of, if it is one. */
+	convertedFrom: number | null;
+	/** The converted copy that replaced this album, if it was converted. */
+	convertedTo: number | null;
 	/** When the album was created (ISO time). */
 	createdAt: string;
 	/** How many different pictures of this album are kept in the photo storage (Cloudflare R2), not on another site. */
@@ -98,7 +102,7 @@ export function listPhotos(onlyActive = false): Photo[] {
 }
 
 export function listAlbums(): Album[] {
-	const albums = db().prepare('SELECT id, title, type, status, cover_photo_id, created_at FROM albums ORDER BY id').all() as Array<{ id: number; title: string; type: AlbumType; status: AlbumStatus; cover_photo_id: number | null; created_at: string }>;
+	const albums = db().prepare('SELECT id, title, type, status, cover_photo_id, created_at, converted_from, converted_to FROM albums ORDER BY id').all() as Array<{ id: number; title: string; type: AlbumType; status: AlbumStatus; cover_photo_id: number | null; created_at: string; converted_from: number | null; converted_to: number | null }>;
 	const photos = listPhotos();
 	const byAlbum = new Map<number, Photo[]>();
 	for (const p of photos) byAlbum.set(p.album, [...(byAlbum.get(p.album) ?? []), p]);
@@ -109,7 +113,7 @@ export function listAlbums(): Album[] {
 	return albums.flatMap((a) => {
 		const list = byAlbum.get(a.id) ?? [];
 		if (list.length === 0) return [];
-		return [{ id: a.id, title: a.title, type: a.type, status: a.status, createdAt: a.created_at, storedCount: stored.get(a.id) ?? 0, categoryIds: catsOf.get(a.id) ?? [], cover: list.find((p) => p.id === a.cover_photo_id) ?? list[0], photos: list }];
+		return [{ id: a.id, title: a.title, type: a.type, status: a.status, convertedFrom: a.converted_from, convertedTo: a.converted_to, createdAt: a.created_at, storedCount: stored.get(a.id) ?? 0, categoryIds: catsOf.get(a.id) ?? [], cover: list.find((p) => p.id === a.cover_photo_id) ?? list[0], photos: list }];
 	});
 }
 

@@ -1,0 +1,378 @@
+---
+// Edit Album, link-based albums only: copies the album into an uploaded album (pictures stored on Cloudflare) and
+// deactivates the old one. The work is done by POST /api/admin/albums/:id/convert, which streams its progress.
+interface Props {
+	albumId: number;
+	/** False when photo storage is not set up on this server: the button is then disabled and says why. */
+	storageReady: boolean;
+	photoCount: number;
+	/** The copy this album was already converted into, if any. */
+	convertedTo: number | null;
+}
+const { albumId, storageReady, photoCount, convertedTo } = Astro.props;
+---
+
+<section class="convert" aria-labelledby="convert-title" data-album={albumId}>
+	<h2 id="convert-title">Convert to Uploaded</h2>
+	{
+		convertedTo !== null ? (
+			<p class="convert-text">
+				This album was already converted. Its copy is <a href={`/admin/albums/${convertedTo}/edit`}>album #{convertedTo}</a>.
+			</p>
+		) : (
+			<>
+				<p class="convert-text">
+					Downloads all {photoCount} picture{photoCount === 1 ? '' : 's'}, uploads them to Cloudflare and makes a new album of type Uploaded. This album is then deactivated.
+				</p>
+				<button type="button" class="convert-btn" id="convert-open" disabled={!storageReady || photoCount === 0}>
+					Convert to Uploaded
+				</button>
+				{!storageReady && <p class="convert-off">Photo storage is not set up on this server (see the Cloudflare guide), so albums cannot be converted yet.</p>}
+			</>
+		)
+	}
+
+	<dialog id="convert-confirm" class="dialog" aria-labelledby="convert-confirm-title">
+		<h2 id="convert-confirm-title">Convert this album?</h2>
+		<p class="dialog-text">Every picture is downloaded from its link and uploaded to Cloudflare, then a new Uploaded album is created as a copy of this one.</p>
+		<ul class="dialog-list">
+			<li>This album is deactivated afterwards, not deleted.</li>
+			<li>Likes and favorites stay with this album and are not copied.</li>
+			<li>It can take a few minutes. If any picture cannot be downloaded, nothing is changed.</li>
+		</ul>
+		<div class="dialog-actions">
+			<button type="button" class="dialog-btn ghost" id="convert-no">Cancel</button>
+			<button type="button" class="dialog-btn primary" id="convert-yes">Convert</button>
+		</div>
+	</dialog>
+
+	<dialog id="convert-progress" class="dialog" aria-labelledby="convert-progress-title">
+		<h2 id="convert-progress-title">Converting album…</h2>
+		<div class="bar" id="convert-bar" role="progressbar" aria-labelledby="convert-progress-title" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0">
+			<div class="bar-fill" id="convert-fill"></div>
+		</div>
+		<p class="dialog-text" id="convert-text" aria-live="polite"></p>
+		<div class="dialog-actions">
+			<button type="button" class="dialog-btn ghost" id="convert-cancel">Cancel</button>
+		</div>
+	</dialog>
+
+	<dialog id="convert-result" class="dialog" aria-labelledby="convert-result-title">
+		<h2 id="convert-result-title"></h2>
+		<p class="dialog-text" id="convert-result-text"></p>
+		<ul class="result-errors" id="convert-errors" hidden></ul>
+		<div class="dialog-actions">
+			<button type="button" class="dialog-btn ghost" id="convert-close">Close</button>
+			<a class="dialog-btn primary" id="convert-open-new" href="/admin/albums" hidden>Open the new album</a>
+		</div>
+	</dialog>
+</section>
+
+<script>
+	const root = document.querySelector<HTMLElement>('.convert')!;
+	const albumId = root.dataset.album!;
+	const openBtn = document.querySelector<HTMLButtonElement>('#convert-open');
+	const confirmDialog = document.querySelector<HTMLDialogElement>('#convert-confirm')!;
+	const progressDialog = document.querySelector<HTMLDialogElement>('#convert-progress')!;
+	const resultDialog = document.querySelector<HTMLDialogElement>('#convert-result')!;
+	const bar = document.querySelector<HTMLElement>('#convert-bar')!;
+	const fill = document.querySelector<HTMLElement>('#convert-fill')!;
+	const text = document.querySelector<HTMLElement>('#convert-text')!;
+	const resultTitle = document.querySelector<HTMLElement>('#convert-result-title')!;
+	const resultText = document.querySelector<HTMLElement>('#convert-result-text')!;
+	const errors = document.querySelector<HTMLUListElement>('#convert-errors')!;
+	const openNew = document.querySelector<HTMLAnchorElement>('#convert-open-new')!;
+	let controller: AbortController | null = null;
+
+	// Hand over from one popup to the next with no fade (same helper as the Crawling page).
+	const swap = (from: HTMLDialogElement, to: HTMLDialogElement) => {
+		from.classList.add('instant');
+		to.classList.add('instant');
+		from.close();
+		to.showModal();
+		requestAnimationFrame(() =>
+			requestAnimationFrame(() => {
+				from.classList.remove('instant');
+				to.classList.remove('instant');
+			}),
+		);
+	};
+
+	const show = (done: number, total: number, message: string) => {
+		fill.style.width = `${total === 0 ? 0 : (done / total) * 100}%`;
+		bar.setAttribute('aria-valuemax', String(Math.max(total, 1)));
+		bar.setAttribute('aria-valuenow', String(done));
+		text.textContent = message;
+	};
+
+	// Server messages are shown as plain text.
+	const showResult = (title: string, message: string, failed: Array<{ position: number; reason: string }> = [], newAlbumId?: number) => {
+		resultTitle.textContent = title;
+		resultText.textContent = message;
+		errors.replaceChildren(
+			...failed.slice(0, 8).map((f) => {
+				const li = document.createElement('li');
+				li.textContent = `Picture ${f.position}: ${f.reason}`;
+				return li;
+			}),
+		);
+		if (failed.length > 8) {
+			const more = document.createElement('li');
+			more.textContent = `…and ${failed.length - 8} more`;
+			errors.append(more);
+		}
+		errors.hidden = failed.length === 0;
+		openNew.hidden = newAlbumId === undefined;
+		if (newAlbumId !== undefined) openNew.href = `/admin/albums/${newAlbumId}/edit`;
+		swap(progressDialog, resultDialog);
+	};
+
+	openBtn?.addEventListener('click', () => confirmDialog.showModal());
+	document.querySelector('#convert-no')!.addEventListener('click', () => confirmDialog.close());
+	confirmDialog.addEventListener('click', (e) => {
+		if (e.target === confirmDialog) confirmDialog.close();
+	});
+	document.querySelector('#convert-close')!.addEventListener('click', () => resultDialog.close());
+	// After a successful conversion this page is out of date (the album is now deactivated): reload it on close.
+	resultDialog.addEventListener('close', () => {
+		if (!openNew.hidden) window.location.reload();
+	});
+
+	const cancel = () => controller?.abort();
+	document.querySelector('#convert-cancel')!.addEventListener('click', cancel);
+	progressDialog.addEventListener('cancel', (e) => {
+		e.preventDefault();
+		cancel();
+	});
+
+	document.querySelector('#convert-yes')!.addEventListener('click', async () => {
+		controller = new AbortController();
+		show(0, 0, 'Starting…');
+		swap(confirmDialog, progressDialog);
+		let finished = false;
+		try {
+			const response = await fetch(`/api/admin/albums/${albumId}/convert`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', credentials: 'same-origin', signal: controller.signal });
+			if (!response.ok || !response.body) {
+				const data = await response.json().catch(() => ({}));
+				finished = true;
+				return showResult('Could not convert', typeof data.error === 'string' ? data.error : 'The album could not be converted.');
+			}
+			const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+			let buffer = '';
+			for (;;) {
+				const { value, done } = await reader.read();
+				if (done) break;
+				buffer += value;
+				let newline: number;
+				while ((newline = buffer.indexOf('\n')) >= 0) {
+					const line = buffer.slice(0, newline).trim();
+					buffer = buffer.slice(newline + 1);
+					if (!line) continue;
+					const event = JSON.parse(line);
+					if (event.type === 'start') show(0, event.total, `Uploaded 0 of ${event.total}`);
+					else if (event.type === 'progress') show(event.done, event.total, `Uploaded ${event.done} of ${event.total}`);
+					else if (event.type === 'saving') text.textContent = 'Creating the new album…';
+					else if (event.type === 'done') {
+						finished = true;
+						showResult('Album converted', `The new album has ${event.photos} picture${event.photos === 1 ? '' : 's'} stored on Cloudflare. This album is now deactivated.`, [], event.newAlbumId);
+					} else if (event.type === 'error') {
+						finished = true;
+						showResult(event.cancelled ? 'Cancelled' : 'Nothing was changed', String(event.error), Array.isArray(event.failed) ? event.failed : []);
+					}
+				}
+			}
+			if (!finished) showResult('Nothing was changed', 'The connection ended before the conversion finished. Check the Albums list before trying again.');
+		} catch (error) {
+			if (!finished) {
+				const aborted = (error as Error).name === 'AbortError';
+				showResult(aborted ? 'Cancelled' : 'Nothing was changed', aborted ? 'The conversion was cancelled.' : 'The connection was lost. Check the Albums list before trying again.');
+			}
+		}
+	});
+</script>
+
+<style>
+	.convert {
+		max-width: 720px;
+		margin: 0 0 28px;
+		padding: 16px 18px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.convert h2 {
+		margin: 0 0 8px;
+		font-size: 16px;
+	}
+	.convert-text {
+		margin: 0 0 12px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.convert-text a {
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	.convert-off {
+		margin: 10px 0 0;
+		font-size: 13px;
+		color: #c62828;
+	}
+	.convert-btn {
+		height: 40px;
+		padding: 0 20px;
+		border: 0;
+		border-radius: 999px;
+		background: var(--text);
+		color: #fff;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.convert-btn:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+	.convert-btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.dialog-list {
+		margin: 0 0 8px;
+		padding-left: 18px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+
+	/* Dialog styles: the same as the Crawling page's popups. */
+	.dialog {
+		width: min(440px, calc(100vw - 32px));
+		padding: 28px;
+		border: 0;
+		border-radius: 12px;
+		color: var(--text);
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+		opacity: 0;
+		transform: translateY(16px) scale(0.96);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open] {
+		opacity: 1;
+		transform: none;
+	}
+	.dialog::backdrop {
+		background: rgba(0, 0, 0, 0);
+		transition:
+			background 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open]::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+	}
+	@starting-style {
+		.dialog[open] {
+			opacity: 0;
+			transform: translateY(16px) scale(0.96);
+		}
+		.dialog[open]::backdrop {
+			background: rgba(0, 0, 0, 0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.dialog,
+		.dialog::backdrop {
+			transition: none;
+		}
+	}
+	.dialog.instant,
+	.dialog.instant::backdrop {
+		transition: none;
+	}
+	.dialog h2 {
+		margin: 0 0 12px;
+		font-size: 20px;
+	}
+	.dialog-text {
+		margin: 0 0 10px;
+		font-size: 15px;
+		overflow-wrap: anywhere;
+	}
+	.dialog-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 16px;
+	}
+	.bar {
+		height: 10px;
+		margin: 4px 0 14px;
+		overflow: hidden;
+		border-radius: 999px;
+		background: var(--bg-soft);
+	}
+	.bar-fill {
+		width: 0;
+		height: 100%;
+		border-radius: 999px;
+		background: var(--text);
+		transition: width 0.2s ease;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.bar-fill {
+			transition: none;
+		}
+	}
+	.result-errors {
+		max-height: 140px;
+		margin: 4px 0 0;
+		padding-left: 18px;
+		overflow: auto;
+		font-size: 13px;
+		color: #c62828;
+		overflow-wrap: anywhere;
+	}
+	.result-errors[hidden],
+	.dialog-actions [hidden] {
+		display: none;
+	}
+	.dialog-btn {
+		display: inline-flex;
+		align-items: center;
+		height: 44px;
+		padding: 0 24px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+	}
+	.dialog-btn:active {
+		transform: scale(0.97);
+	}
+	.dialog-btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.dialog-btn.primary {
+		border: 0;
+		background: var(--text);
+		color: #fff;
+	}
+	.dialog-btn.primary:hover {
+		background: #333;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+	.dialog-btn.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.dialog-btn.ghost:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+</style>

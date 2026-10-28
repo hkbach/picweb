@@ -116,6 +116,13 @@ const MIGRATIONS: string[] = [
 	-- keeps all its data. Only a deactivated album can be deleted. Albums that exist already stay active.
 	ALTER TABLE albums ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'deactivated'));
 	`,
+	`
+	-- Converting a link-based album into an uploaded one makes a copy: the copy remembers the album it came from, and the
+	-- original (deactivated when the copy was finished) remembers the copy. Plain numbers, not links: deleting either
+	-- album must not delete the other.
+	ALTER TABLE albums ADD COLUMN converted_from INTEGER;
+	ALTER TABLE albums ADD COLUMN converted_to INTEGER;
+	`,
 ];
 
 type Db = DatabaseSync;
