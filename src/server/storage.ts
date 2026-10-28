@@ -1,6 +1,6 @@
 import './env.ts';
 import path from 'node:path';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { DATA_DIR } from './db.ts';
 
 // Where pictures that this site stores itself (uploads from a device, or downloads from the Crawling page)
@@ -17,6 +17,26 @@ export interface PhotoStorage {
 	/** Stores `bytes` under `key` (replacing an identical object is fine) and returns the address pictures are shown from. */
 	put(key: string, bytes: Uint8Array, contentType: string): Promise<string>;
 	remove(key: string): Promise<void>;
+	/** Every picture this site stored (names it gave, see MEDIA_KEY), with size and the time it was stored. */
+	list(): Promise<Listing>;
+	/** The address a stored picture is shown from. */
+	publicUrl(key: string): string;
+}
+
+export interface StoredObject {
+	key: string;
+	bytes: number;
+	/** When it was stored, as an ISO date. */
+	modified: string;
+}
+
+/** The most pictures `list` returns; `truncated` says there were more. */
+export const MAX_LISTED = 10_000;
+export interface Listing {
+	objects: StoredObject[];
+	/** Objects in the storage whose names this site did not give (never listed, never deleted). */
+	others: number;
+	truncated: boolean;
 }
 
 /** A storage failure whose message is safe to show to the administrator (it never contains a key or secret). */
@@ -47,6 +67,25 @@ const local: PhotoStorage = {
 	async remove(key) {
 		if (!MEDIA_KEY.test(key)) return;
 		await unlink(path.join(UPLOADS_DIR, key)).catch(() => {});
+	},
+	publicUrl: (key) => `/api/media/${key}`,
+	async list() {
+		const names = await readdir(UPLOADS_DIR).catch(() => [] as string[]);
+		const objects: StoredObject[] = [];
+		let others = 0;
+		for (const name of names) {
+			if (!MEDIA_KEY.test(name)) {
+				others++;
+				continue;
+			}
+			try {
+				const info = await stat(path.join(UPLOADS_DIR, name));
+				if (info.isFile()) objects.push({ key: name, bytes: info.size, modified: info.mtime.toISOString() });
+			} catch {
+				// removed while listing
+			}
+		}
+		return { objects: objects.slice(0, MAX_LISTED), others, truncated: objects.length > MAX_LISTED };
 	},
 };
 
@@ -129,6 +168,14 @@ export const R2_ERROR_MESSAGE: Record<R2ErrorKind, string> = {
 	other: 'The photo storage (Cloudflare R2) did not accept the pictures. Run "npm run check-storage" on the server to see why.',
 };
 
+/** What to tell the administrator when reading or deleting (rather than uploading) failed. */
+export const R2_READ_MESSAGE: Record<R2ErrorKind, string> = {
+	bucket: 'Cloudflare R2 could not find the bucket. Check the bucket name in the server settings.',
+	denied: 'Cloudflare R2 refused the request. Check that the access key may read and delete objects in this bucket.',
+	unreachable: 'Cloudflare R2 could not be reached. Check the account ID in the server settings and the internet connection.',
+	other: 'Cloudflare R2 did not answer as expected. Run "npm run check-storage" on the server to see why.',
+};
+
 function r2Storage(config: R2Config): PhotoStorage {
 	// The S3 client is loaded on first use, so a site that does not use R2 never loads it.
 	let client: Promise<{ s3: import('@aws-sdk/client-s3').S3Client; lib: typeof import('@aws-sdk/client-s3') }> | undefined;
@@ -172,6 +219,32 @@ function r2Storage(config: R2Config): PhotoStorage {
 			if (!MEDIA_KEY.test(key)) return;
 			const { s3, lib } = await open();
 			await s3.send(new lib.DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
+		},
+		publicUrl: (key) => `${config.publicUrl}/${key}`,
+		async list() {
+			const objects: StoredObject[] = [];
+			let others = 0;
+			let truncated = false;
+			try {
+				const { s3, lib } = await open();
+				let token: string | undefined;
+				do {
+					const page = await s3.send(new lib.ListObjectsV2Command({ Bucket: config.bucket, ContinuationToken: token, MaxKeys: 1000 }));
+					for (const object of page.Contents ?? []) {
+						if (!object.Key || !MEDIA_KEY.test(object.Key)) {
+							others++;
+							continue;
+						}
+						if (objects.length >= MAX_LISTED) truncated = true;
+						else objects.push({ key: object.Key, bytes: object.Size ?? 0, modified: (object.LastModified ?? new Date(0)).toISOString() });
+					}
+					token = page.IsTruncated ? page.NextContinuationToken : undefined;
+				} while (token && !truncated);
+			} catch (error) {
+				const kind = r2ErrorKind(error);
+				throw new StorageError(R2_READ_MESSAGE[kind], kind);
+			}
+			return { objects, others, truncated };
 		},
 	};
 }

@@ -1,0 +1,741 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+
+// Rendered on demand so the middleware can require an administrator before anything is sent.
+export const prerender = false;
+---
+
+<AdminLayout title="Cloud photos" heading="Cloud photos">
+	<p class="intro">
+		The pictures stored in the photo storage (Cloudflare R2) by Upload and by Convert to Uploaded. Deleting a picture here removes it from
+		Cloudflare and then from every album that uses it. If Cloudflare does not delete it, it stays in its albums and the page says so.
+	</p>
+
+	<div class="summary" id="summary" aria-live="polite"></div>
+
+	<div class="toolbar" id="toolbar" hidden>
+		<label class="select-all">
+			<input type="checkbox" id="select-all" />
+			<span id="select-all-text">Select all</span>
+		</label>
+		<p class="picked" id="picked" aria-live="polite"></p>
+		<div class="sorter">
+			<label for="sort">Sort by</label>
+			<select id="sort">
+				<option value="date-desc">Upload date: newest first</option>
+				<option value="date-asc">Upload date: oldest first</option>
+				<option value="size-desc">File size: largest first</option>
+				<option value="size-asc">File size: smallest first</option>
+			</select>
+		</div>
+		<div class="actions">
+			<button type="button" class="btn danger" id="delete-selected" disabled>Delete selected</button>
+			<button type="button" class="btn ghost" id="refresh">Refresh</button>
+		</div>
+	</div>
+
+	<p class="status" id="status" role="status"></p>
+	<p class="failures-title" id="failures-title" hidden></p>
+	<ul class="failures" id="failures" hidden></ul>
+
+	<ul class="grid" id="grid"></ul>
+
+	<div class="more" id="more-wrap" hidden>
+		<button type="button" class="btn ghost" id="more">Show more</button>
+	</div>
+
+	<p class="empty" id="empty" hidden></p>
+	<button type="button" class="btn ghost" id="retry" hidden>Try again</button>
+
+	<dialog id="confirm-dialog" class="dialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+		<h2 id="confirm-title"></h2>
+		<p class="dialog-text" id="confirm-text"></p>
+		<p class="dialog-note" id="confirm-albums"></p>
+		<p class="dialog-note">This cannot be undone. Likes and favorites of those album photos are removed too. A picture that is the only photo of an album is kept.</p>
+		<div class="dialog-actions">
+			<button type="button" class="dialog-btn ghost" id="confirm-cancel" autofocus>Cancel</button>
+			<button type="button" class="dialog-btn danger" id="confirm-delete">Delete</button>
+		</div>
+	</dialog>
+
+	<template id="card-template">
+		<li class="card">
+			<label class="pick">
+				<input type="checkbox" class="check" />
+				<span class="visually-hidden pick-label"></span>
+			</label>
+			<a class="thumb" target="_blank" rel="noopener noreferrer">
+				<img alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+			</a>
+			<div class="meta">
+				<p class="info"></p>
+				<p class="sub"></p>
+			</div>
+		</li>
+	</template>
+</AdminLayout>
+
+<script>
+	const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
+	const grid = $<HTMLUListElement>('#grid');
+	const summary = $('#summary');
+	const toolbar = $('#toolbar');
+	const selectAll = $<HTMLInputElement>('#select-all');
+	const selectAllText = $('#select-all-text');
+	const picked = $('#picked');
+	const sortSelect = $<HTMLSelectElement>('#sort');
+	const deleteSelected = $<HTMLButtonElement>('#delete-selected');
+	const refreshButton = $<HTMLButtonElement>('#refresh');
+	const retryButton = $<HTMLButtonElement>('#retry');
+	const moreWrap = $('#more-wrap');
+	const moreButton = $<HTMLButtonElement>('#more');
+	const statusLine = $('#status');
+	const failuresTitle = $('#failures-title');
+	const failuresList = $<HTMLUListElement>('#failures');
+	const empty = $('#empty');
+	const template = $<HTMLTemplateElement>('#card-template');
+	const dialog = $<HTMLDialogElement>('#confirm-dialog');
+
+	interface CloudPhoto {
+		key: string;
+		url: string;
+		bytes: number;
+		modified: string;
+		width: number;
+		height: number;
+		albums: Array<{ id: number; title: string }>;
+	}
+	interface Outcome {
+		key: string;
+		status: 'deleted' | 'failed' | 'kept';
+		reason?: string;
+		albums?: number;
+	}
+
+	const PAGE = 60; // cards drawn at a time: thousands of pictures are listed, not all loaded at once
+	const CHUNK = 25; // pictures per delete request
+	let photos: CloudPhoto[] = [];
+	let others = 0;
+	let truncated = false;
+	let shown = PAGE;
+	let busy = false;
+	let loaded = false;
+	const selected = new Set<string>();
+	// Sizes the browser measured (the database only knows pictures that an album uses).
+	const measured = new Map<string, { w: number; h: number }>();
+
+	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+	const bytesText = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(2)} MB` : b >= 1024 ? `${(b / 1024).toFixed(1)} KB` : `${b} B`);
+	const when = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+	const say = (message: string, isError = false) => {
+		statusLine.textContent = message;
+		statusLine.classList.toggle('is-error', isError);
+	};
+	const showFailures = (title: string, items: Array<{ key: string; reason: string }>) => {
+		failuresTitle.textContent = title;
+		failuresTitle.hidden = items.length === 0;
+		failuresList.replaceChildren(
+			...items.map((item) => {
+				const li = document.createElement('li');
+				const name = document.createElement('span');
+				name.className = 'failed-name';
+				name.textContent = item.key;
+				const why = document.createElement('span');
+				why.className = 'failed-reason';
+				why.textContent = item.reason;
+				li.append(name, why);
+				return li;
+			}),
+		);
+		failuresList.hidden = items.length === 0;
+	};
+
+	const sorted = () => {
+		const [by, dir] = sortSelect.value.split('-');
+		const sign = dir === 'asc' ? 1 : -1;
+		return [...photos].sort((a, b) => sign * (by === 'size' ? a.bytes - b.bytes : a.modified.localeCompare(b.modified)) || a.key.localeCompare(b.key));
+	};
+
+	const infoText = (p: CloudPhoto) => {
+		const m = measured.get(p.key);
+		const w = m?.w || p.width;
+		const h = m?.h || p.height;
+		return `${bytesText(p.bytes)} · ${w > 0 && h > 0 ? `${w} × ${h}` : 'measuring…'}`;
+	};
+	const usedText = (p: CloudPhoto) => (p.albums.length === 0 ? 'Not used in any album' : `In ${plural(p.albums.length, 'album')}`);
+
+	// Everything below the toolbar is drawn from `photos`, `selected`, the sort and `shown`.
+	const drawGrid = () => {
+		grid.replaceChildren();
+		for (const photo of sorted().slice(0, shown)) {
+			const card = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+			card.dataset.key = photo.key;
+			const check = card.querySelector<HTMLInputElement>('.check')!;
+			check.checked = selected.has(photo.key);
+			check.disabled = busy;
+			card.classList.toggle('is-selected', check.checked);
+			card.querySelector<HTMLElement>('.pick-label')!.textContent = `Select picture uploaded ${when.format(new Date(photo.modified))}, ${bytesText(photo.bytes)}`;
+			check.addEventListener('change', () => {
+				if (check.checked) selected.add(photo.key);
+				else selected.delete(photo.key);
+				card.classList.toggle('is-selected', check.checked);
+				drawToolbar();
+			});
+			const link = card.querySelector<HTMLAnchorElement>('.thumb')!;
+			link.href = photo.url;
+			link.setAttribute('aria-label', 'Open the picture in a new tab');
+			const img = card.querySelector<HTMLImageElement>('img')!;
+			const info = card.querySelector<HTMLElement>('.info')!;
+			info.textContent = infoText(photo);
+			img.addEventListener('load', () => {
+				if (img.naturalWidth > 0) {
+					measured.set(photo.key, { w: img.naturalWidth, h: img.naturalHeight });
+					info.textContent = infoText(photo);
+				}
+			});
+			img.addEventListener('error', () => {
+				card.classList.add('broken');
+				info.textContent = `${bytesText(photo.bytes)} · could not load`;
+			});
+			img.src = photo.url;
+			card.querySelector<HTMLElement>('.sub')!.textContent = `${when.format(new Date(photo.modified))} · ${usedText(photo)}`;
+			grid.append(card);
+		}
+		moreWrap.hidden = shown >= photos.length;
+		moreButton.textContent = `Show more (${photos.length - shown} left)`;
+	};
+
+	const drawToolbar = () => {
+		const count = selected.size;
+		const has = photos.length > 0;
+		toolbar.hidden = !has || !loaded;
+		selectAll.checked = has && count === photos.length;
+		selectAll.indeterminate = count > 0 && count < photos.length;
+		selectAll.disabled = busy;
+		selectAllText.textContent = `Select all (${photos.length})`;
+		picked.textContent = count > 0 ? `${count} selected` : '';
+		deleteSelected.textContent = count > 0 ? `Delete selected (${count})` : 'Delete selected';
+		deleteSelected.disabled = busy || count === 0;
+		refreshButton.disabled = busy;
+		sortSelect.disabled = busy;
+		moreButton.disabled = busy;
+	};
+
+	const drawSummary = () => {
+		const total = photos.reduce((sum, p) => sum + p.bytes, 0);
+		let text = `${plural(photos.length, 'picture')} in Cloudflare · ${bytesText(total)} in total`;
+		if (truncated) text += ' · only the first 10,000 are listed';
+		if (others > 0) text += `. ${plural(others, 'other object')} in the bucket ${others === 1 ? 'was' : 'were'} not put there by this site, so ${others === 1 ? 'it is' : 'they are'} not shown and never touched.`;
+		summary.textContent = text;
+		summary.hidden = false;
+		empty.hidden = photos.length > 0;
+		if (photos.length === 0) empty.textContent = 'No pictures are stored in Cloudflare.';
+	};
+
+	const redraw = () => {
+		drawSummary();
+		drawGrid();
+		drawToolbar();
+	};
+
+	const load = async () => {
+		retryButton.hidden = true;
+		busy = true;
+		drawToolbar();
+		summary.textContent = 'Loading…';
+		try {
+			let response: Response;
+			try {
+				response = await fetch('/api/admin/cloud-photos', { cache: 'no-store', credentials: 'same-origin' });
+			} catch {
+				throw new Error('Could not reach the server.');
+			}
+			const data = await response.json().catch(() => null);
+			if (!response.ok) throw new Error(data?.error ?? `The list could not be loaded (${response.status}).`);
+			photos = data.photos;
+			others = data.others;
+			truncated = data.truncated;
+			for (const key of [...selected]) if (!photos.some((p) => p.key === key)) selected.delete(key);
+			shown = Math.max(PAGE, Math.min(shown, photos.length));
+			loaded = true;
+			busy = false;
+			redraw();
+		} catch (error) {
+			photos = [];
+			selected.clear();
+			busy = false;
+			loaded = true;
+			grid.replaceChildren();
+			moreWrap.hidden = true;
+			summary.hidden = true;
+			toolbar.hidden = true;
+			empty.hidden = false;
+			empty.textContent = error instanceof Error ? error.message : 'The list could not be loaded.';
+			retryButton.hidden = false;
+		}
+	};
+
+	// ---- confirm, then delete exactly the pictures that were selected
+	const confirmDelete = (title: string, text: string, albums: string): Promise<boolean> =>
+		new Promise((resolve) => {
+			$('#confirm-title').textContent = title;
+			$('#confirm-text').textContent = text;
+			$('#confirm-albums').textContent = albums;
+			dialog.returnValue = '';
+			const finish = () => {
+				dialog.removeEventListener('close', finish);
+				resolve(dialog.returnValue === 'delete');
+			};
+			dialog.addEventListener('close', finish);
+			dialog.showModal();
+		});
+	$('#confirm-cancel').addEventListener('click', () => dialog.close('cancel'));
+	$('#confirm-delete').addEventListener('click', () => dialog.close('delete'));
+	dialog.addEventListener('click', (e) => {
+		if (e.target === dialog) dialog.close('cancel');
+	});
+
+	const requestChunk = async (keys: string[]): Promise<Outcome[]> => {
+		const fallback = (reason: string): Outcome[] => keys.map((key) => ({ key, status: 'failed', reason }));
+		try {
+			const response = await fetch('/api/admin/cloud-photos/delete', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ keys }),
+				credentials: 'same-origin',
+			});
+			const data = await response.json().catch(() => null);
+			if (!response.ok || !Array.isArray(data?.results)) return fallback(data?.error ?? `The server answered ${response.status}. Nothing was changed for these pictures.`);
+			return data.results;
+		} catch {
+			return fallback('The server could not be reached. The picture may or may not have been deleted: refresh the list.');
+		}
+	};
+
+	deleteSelected.addEventListener('click', async () => {
+		const chosen = photos.filter((p) => selected.has(p.key));
+		if (chosen.length === 0) return;
+		const albumIds = new Set(chosen.flatMap((p) => p.albums.map((a) => a.id)));
+		const albumText = albumIds.size === 0 ? 'None of them is used in an album.' : `They are used in ${plural(albumIds.size, 'album')}; the photos will be removed from ${albumIds.size === 1 ? 'it' : 'them'} after Cloudflare has deleted them.`;
+		const title = chosen.length === 1 ? 'Delete the picture?' : `Delete ${chosen.length} pictures?`;
+		if (!(await confirmDelete(title, `${plural(chosen.length, 'picture')} (${bytesText(chosen.reduce((s, p) => s + p.bytes, 0))}) will be permanently deleted from Cloudflare.`, albumText))) return;
+
+		busy = true;
+		drawToolbar();
+		showFailures('', []);
+		const keys = chosen.map((p) => p.key);
+		const results: Outcome[] = [];
+		for (let i = 0; i < keys.length; i += CHUNK) {
+			say(`Deleting… ${Math.min(i + CHUNK, keys.length)} of ${keys.length}`);
+			results.push(...(await requestChunk(keys.slice(i, i + CHUNK))));
+		}
+		const deleted = results.filter((r) => r.status === 'deleted');
+		const notDeleted = results.filter((r) => r.status !== 'deleted');
+		const gone = new Set(deleted.map((r) => r.key));
+		photos = photos.filter((p) => !gone.has(p.key));
+		for (const key of gone) selected.delete(key);
+		busy = false;
+		redraw();
+
+		const fromAlbums = deleted.reduce((sum, r) => sum + (r.albums ?? 0), 0);
+		const parts: string[] = [];
+		if (deleted.length > 0) parts.push(`Deleted ${plural(deleted.length, 'picture')} from Cloudflare${fromAlbums > 0 ? ` and removed ${plural(fromAlbums, 'album photo')}` : ''}.`);
+		if (notDeleted.length > 0) parts.push(`${plural(notDeleted.length, 'picture')} ${notDeleted.length === 1 ? 'was' : 'were'} not deleted and ${notDeleted.length === 1 ? 'is' : 'are'} still in ${notDeleted.length === 1 ? 'its' : 'their'} albums.`);
+		say(parts.join(' ') || 'Nothing was deleted.', notDeleted.length > 0);
+		showFailures(notDeleted.length === 0 ? '' : `${plural(notDeleted.length, 'picture')} not deleted:`, notDeleted.map((r) => ({ key: r.key, reason: r.reason ?? 'It could not be deleted.' })));
+		if (toolbar.hidden) {
+			statusLine.tabIndex = -1;
+			statusLine.focus();
+		} else {
+			refreshButton.focus();
+		}
+	});
+
+	selectAll.addEventListener('change', () => {
+		if (selectAll.checked) for (const p of photos) selected.add(p.key);
+		else selected.clear();
+		drawGrid();
+		drawToolbar();
+	});
+	sortSelect.addEventListener('change', () => {
+		shown = PAGE;
+		drawGrid();
+	});
+	moreButton.addEventListener('click', () => {
+		shown += PAGE;
+		drawGrid();
+		drawToolbar();
+	});
+	refreshButton.addEventListener('click', async () => {
+		showFailures('', []);
+		await load();
+		say(`List refreshed: ${plural(photos.length, 'picture')}.`);
+	});
+	retryButton.addEventListener('click', load);
+
+	load();
+</script>
+
+<style>
+	.intro {
+		max-width: 720px;
+		margin: -8px 0 16px;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.summary {
+		margin: 0 0 16px;
+		font-size: 14px;
+		overflow-wrap: anywhere;
+	}
+	.summary[hidden],
+	.toolbar[hidden],
+	.empty[hidden],
+	.btn[hidden],
+	.more[hidden],
+	.failures[hidden],
+	.failures-title[hidden] {
+		display: none;
+	}
+
+	.toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 12px 16px;
+		margin-bottom: 8px;
+		padding: 10px 14px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.select-all {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+	}
+	.select-all input,
+	.card :global(.check) {
+		width: 18px;
+		height: 18px;
+		margin: 0;
+		accent-color: var(--text);
+		cursor: pointer;
+	}
+	.picked {
+		margin: 0;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.sorter {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 14px;
+	}
+	.sorter label {
+		color: var(--muted);
+		font-weight: 500;
+	}
+	.sorter select {
+		height: 36px;
+		padding: 0 10px;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: #fff;
+		color: var(--text);
+		font: inherit;
+		font-size: 14px;
+	}
+	.sorter select:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 1px;
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-left: auto;
+	}
+
+	.status {
+		min-height: 1.4em;
+		margin: 4px 0 12px;
+		font-size: 14px;
+		color: var(--muted);
+		overflow-wrap: anywhere;
+	}
+	.status.is-error {
+		color: #c62828;
+	}
+	.status:focus {
+		outline: 0;
+	}
+	.failures-title {
+		margin: -4px 0 6px;
+		font-size: 13px;
+		font-weight: 600;
+		color: #c62828;
+	}
+	.failures {
+		margin: 0 0 16px;
+		padding: 0 0 0 18px;
+		font-size: 13px;
+		color: #c62828;
+	}
+	.failures :global(li + li) {
+		margin-top: 8px;
+	}
+	.failures :global(.failed-name),
+	.failures :global(.failed-reason) {
+		display: block;
+		overflow-wrap: anywhere;
+	}
+	.failures :global(.failed-name) {
+		font-weight: 600;
+	}
+
+	/* The same grid as the Crawling page. */
+	.grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+		gap: 16px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.grid :global(.card) {
+		position: relative;
+		min-width: 0;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		overflow: hidden;
+		background: #fff;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	.grid :global(.card.is-selected) {
+		border-color: var(--text);
+		box-shadow: 0 0 0 1px var(--text);
+	}
+	.grid :global(.pick) {
+		position: absolute;
+		top: 8px;
+		left: 8px;
+		z-index: 1;
+		display: grid;
+		place-items: center;
+		width: 34px;
+		height: 34px;
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.92);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+		cursor: pointer;
+	}
+	.grid :global(.check:focus-visible) {
+		outline: 2px solid var(--text);
+		outline-offset: 3px;
+	}
+	.grid :global(.thumb) {
+		display: block;
+		aspect-ratio: 4 / 3;
+		background: var(--bg-soft);
+	}
+	.grid :global(.thumb:focus-visible) {
+		outline: 2px solid var(--text);
+		outline-offset: -2px;
+	}
+	.grid :global(.thumb img) {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+	.grid :global(.broken .thumb img) {
+		visibility: hidden;
+	}
+	.grid :global(.meta) {
+		padding: 10px 12px 12px;
+	}
+	.grid :global(.info) {
+		margin: 0 0 2px;
+		font-size: 13px;
+		font-weight: 600;
+		overflow-wrap: anywhere;
+	}
+	.grid :global(.sub) {
+		margin: 0;
+		font-size: 12px;
+		color: var(--muted);
+	}
+	.more {
+		display: flex;
+		justify-content: center;
+		margin: 20px 0;
+	}
+
+	.empty {
+		margin: 8px 0;
+		padding: 28px 16px;
+		border: 1px dashed var(--border);
+		border-radius: 12px;
+		text-align: center;
+		color: var(--muted);
+	}
+
+	.btn {
+		height: 40px;
+		padding: 0 18px;
+		border-radius: 999px;
+		font: inherit;
+		font-size: 14px;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
+	}
+	.btn:active:not(:disabled) {
+		transform: scale(0.97);
+	}
+	.btn:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.danger {
+		border: 0;
+		background: #c62828;
+		color: #fff;
+	}
+	.danger:hover:not(:disabled) {
+		background: #a81f1f;
+	}
+	.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.ghost:hover:not(:disabled) {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+
+	/* Confirmation dialog, in the same style as the other admin dialogs. */
+	.dialog {
+		width: min(440px, calc(100vw - 32px));
+		padding: 28px;
+		border: 0;
+		border-radius: 12px;
+		color: var(--text);
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+		opacity: 0;
+		transform: translateY(16px) scale(0.96);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open] {
+		opacity: 1;
+		transform: none;
+	}
+	.dialog::backdrop {
+		background: rgba(0, 0, 0, 0);
+		transition:
+			background 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open]::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+	}
+	@starting-style {
+		.dialog[open] {
+			opacity: 0;
+			transform: translateY(16px) scale(0.96);
+		}
+		.dialog[open]::backdrop {
+			background: rgba(0, 0, 0, 0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.dialog,
+		.dialog::backdrop {
+			transition: none;
+		}
+	}
+	.dialog h2 {
+		margin: 0 0 12px;
+		font-size: 20px;
+	}
+	.dialog-text {
+		margin: 0 0 10px;
+		font-size: 15px;
+		overflow-wrap: anywhere;
+	}
+	.dialog-note {
+		margin: 0 0 8px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.dialog-note:empty {
+		display: none;
+	}
+	.dialog-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 20px;
+	}
+	.dialog-btn {
+		height: 44px;
+		padding: 0 24px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		transition: background 0.15s, color 0.15s, transform 0.1s;
+	}
+	.dialog-btn:active {
+		transform: scale(0.97);
+	}
+	.dialog-btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.dialog-btn.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.dialog-btn.ghost:hover {
+		background: var(--bg-soft);
+		color: var(--text);
+	}
+	.dialog-btn.danger {
+		border: 0;
+		background: #c62828;
+		color: #fff;
+	}
+	.dialog-btn.danger:hover {
+		background: #a81f1f;
+	}
+
+	@media (max-width: 600px) {
+		.grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 12px;
+		}
+		.actions,
+		.sorter {
+			width: 100%;
+			margin-left: 0;
+		}
+		.sorter select {
+			flex: 1;
+			min-width: 0;
+		}
+	}
+</style>

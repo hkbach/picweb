@@ -14,6 +14,7 @@ const path = Astro.url.pathname.replace(/\/$/, '') || '/';
 const items: Array<{ href: string; label: string; match?: RegExp }> = [
 	{ href: '/admin/crawling', label: 'Crawling' },
 	{ href: '/admin/photos', label: 'Downloaded photos' },
+	{ href: '/admin/cloud-photos', label: 'Cloud photos' },
 	{ href: '/admin/albums', label: 'Albums', match: /^\/admin\/albums\/\d+\/edit$/ },
 	{ href: '/admin/albums/new', label: 'Create new album' },
 	{ href: '/admin/categories', label: 'Categories' },
