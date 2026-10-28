@@ -10,7 +10,7 @@ export const GET: APIRoute = ({ request }) => {
 	const site = siteUrl(request);
 	if (!site) return new Response('SITE_URL is not set, so the sitemap cannot be written.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
-	const albums = listAlbums();
+	const albums = listAlbums().filter((a) => a.status === 'active'); // a deactivated album is not shown, so it counts for nothing
 	const rest = listCategories().slice(1);
 	const urls = [`${site}/`];
 	for (const category of rest) if (albums.some((a) => a.categoryIds.includes(category.id))) urls.push(`${site}/?category=${encodeURIComponent(category.id)}`);

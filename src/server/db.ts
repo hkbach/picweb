@@ -111,6 +111,11 @@ const MIGRATIONS: string[] = [
 	CREATE INDEX album_sources_album ON album_sources(album_id);
 	CREATE INDEX album_sources_url ON album_sources(url);
 	`,
+	`
+	-- An album that is deactivated is hidden from the whole public site (and from its visitors' likes and favorites) but
+	-- keeps all its data. Only a deactivated album can be deleted. Albums that exist already stay active.
+	ALTER TABLE albums ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'deactivated'));
+	`,
 ];
 
 type Db = DatabaseSync;

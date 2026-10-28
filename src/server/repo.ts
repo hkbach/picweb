@@ -56,10 +56,14 @@ export interface Photo {
 	thumb: string;
 }
 
+export type AlbumStatus = 'active' | 'deactivated';
+
 export interface Album {
 	id: number;
 	title: string;
 	type: AlbumType;
+	/** A deactivated album is hidden from the public site; only a deactivated album can be deleted. */
+	status: AlbumStatus;
 	/** When the album was created (ISO time). */
 	createdAt: string;
 	/** How many different pictures of this album are kept in the photo storage (Cloudflare R2), not on another site. */
@@ -84,13 +88,17 @@ const toPhoto = (r: PhotoRow): Photo => ({ id: r.id, album: r.album_id, albumTit
 
 const PHOTO_SELECT = 'SELECT p.id, p.album_id, a.title, p.url, p.thumb_url, p.alt, p.width, p.height FROM photos p JOIN albums a ON a.id = p.album_id';
 
-/** Every photo, album by album, in each album's own order. */
-export function listPhotos(): Photo[] {
-	return (db().prepare(`${PHOTO_SELECT} ORDER BY a.id, p.position`).all() as unknown as PhotoRow[]).map(toPhoto);
+/**
+ * Every photo, album by album, in each album's own order. Pass `onlyActive` for anything a visitor can see: the
+ * photos of a deactivated album are left out.
+ */
+export function listPhotos(onlyActive = false): Photo[] {
+	const where = onlyActive ? "WHERE a.status = 'active'" : '';
+	return (db().prepare(`${PHOTO_SELECT} ${where} ORDER BY a.id, p.position`).all() as unknown as PhotoRow[]).map(toPhoto);
 }
 
 export function listAlbums(): Album[] {
-	const albums = db().prepare('SELECT id, title, type, cover_photo_id, created_at FROM albums ORDER BY id').all() as Array<{ id: number; title: string; type: AlbumType; cover_photo_id: number | null; created_at: string }>;
+	const albums = db().prepare('SELECT id, title, type, status, cover_photo_id, created_at FROM albums ORDER BY id').all() as Array<{ id: number; title: string; type: AlbumType; status: AlbumStatus; cover_photo_id: number | null; created_at: string }>;
 	const photos = listPhotos();
 	const byAlbum = new Map<number, Photo[]>();
 	for (const p of photos) byAlbum.set(p.album, [...(byAlbum.get(p.album) ?? []), p]);
@@ -101,7 +109,7 @@ export function listAlbums(): Album[] {
 	return albums.flatMap((a) => {
 		const list = byAlbum.get(a.id) ?? [];
 		if (list.length === 0) return [];
-		return [{ id: a.id, title: a.title, type: a.type, createdAt: a.created_at, storedCount: stored.get(a.id) ?? 0, categoryIds: catsOf.get(a.id) ?? [], cover: list.find((p) => p.id === a.cover_photo_id) ?? list[0], photos: list }];
+		return [{ id: a.id, title: a.title, type: a.type, status: a.status, createdAt: a.created_at, storedCount: stored.get(a.id) ?? 0, categoryIds: catsOf.get(a.id) ?? [], cover: list.find((p) => p.id === a.cover_photo_id) ?? list[0], photos: list }];
 	});
 }
 
@@ -112,6 +120,7 @@ export function listAlbums(): Album[] {
  */
 export function listAlbumCovers(categoryId?: string): Photo[] {
 	return listAlbums()
+		.filter((a) => a.status === 'active') // a deactivated album is not shown to visitors
 		.filter((a) => !categoryId || a.categoryIds.includes(categoryId))
 		// Newest first. Albums made in the same instant (ids grow with time) keep the later one first.
 		.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : b.id - a.id))
@@ -145,7 +154,7 @@ type Reaction = 'likes' | 'favorites';
 
 /** The user's photos for one list, newest first. */
 function listReacted(table: Reaction, userId: string): Photo[] {
-	return (db().prepare(`${PHOTO_SELECT} JOIN ${table} r ON r.photo_id = p.id WHERE r.user_id = ? ORDER BY r.created_at DESC, p.id DESC`).all(userId) as unknown as PhotoRow[]).map(toPhoto);
+	return (db().prepare(`${PHOTO_SELECT} JOIN ${table} r ON r.photo_id = p.id WHERE r.user_id = ? AND a.status = 'active' ORDER BY r.created_at DESC, p.id DESC`).all(userId) as unknown as PhotoRow[]).map(toPhoto);
 }
 
 export const listLiked = (userId: string) => listReacted('likes', userId);

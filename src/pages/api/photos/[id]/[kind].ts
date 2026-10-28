@@ -18,6 +18,8 @@ const handle: APIRoute = async ({ params, request }) => {
 	const photoId = Number(params.id);
 	if (!table || !Number.isInteger(photoId)) return json({ error: 'Not found.' }, 404);
 	if (!db().prepare('SELECT 1 FROM photos WHERE id = ?').get(photoId)) return json({ error: 'Photo not found.' }, 404);
+	// A photo of a deactivated album is hidden from the site, so it cannot be liked or favorited (a mark can still be taken off).
+	if (request.method === 'PUT' && !db().prepare("SELECT 1 FROM photos p JOIN albums a ON a.id = p.album_id WHERE p.id = ? AND a.status = 'active'").get(photoId)) return json({ error: 'Photo not found.' }, 404);
 
 	if (request.method === 'PUT') {
 		db().prepare(`INSERT OR IGNORE INTO ${table} (user_id, photo_id, created_at) VALUES (?, ?, ?)`).run(user.id, photoId, new Date().toISOString());

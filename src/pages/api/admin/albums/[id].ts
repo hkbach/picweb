@@ -46,8 +46,10 @@ export const DELETE: APIRoute = async ({ params, request }) => {
 	if (admin instanceof Response) return admin;
 
 	const id = Number(params.id);
-	const album = Number.isInteger(id) ? (db().prepare('SELECT id FROM albums WHERE id = ?').get(id) as { id: number } | undefined) : undefined;
+	const album = Number.isInteger(id) ? (db().prepare('SELECT id, status FROM albums WHERE id = ?').get(id) as { id: number; status: string } | undefined) : undefined;
 	if (!album) return json({ error: 'Album not found.' }, 404);
+	// Only a deactivated album can be deleted: deactivating first is the "are you sure", and it is undone with one click.
+	if (album.status !== 'deactivated') return json({ error: 'Deactivate the album before deleting it.' }, 409);
 
 	const rows = db().prepare('SELECT storage_key FROM photos WHERE album_id = ?').all(id) as Array<{ storage_key: string | null }>;
 	const keys = rows.flatMap((r) => (r.storage_key ? [r.storage_key] : []));

@@ -27,7 +27,9 @@ export const prerender = false;
 	<p class="meta">
 		Editing <strong>{album.title}</strong> · Type
 		<span class={`type type-${album.type}`}>{albumTypeLabels[album.type]}</span>
+		· Status <strong>{album.status === 'active' ? 'Active' : 'Deactivated'}</strong>
 	</p>
+	{album.status === 'deactivated' && <p class="note off">This album is deactivated, so it is hidden from the site. Activate it from the Albums list to show it again.</p>}
 	<p class="note">
 		An album keeps the type it was created with, so it is edited the same way: {
 			album.type === 'crawling' ? 'by its image links.' : 'by its uploaded photos.'

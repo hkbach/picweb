@@ -12,6 +12,7 @@ const expiryOf = (photos: Array<{ src: string }>) => {
 	return times.length > 0 ? Math.min(...times) : null;
 };
 const now = Date.now();
+const deactivated = albums.filter((a) => a.status === 'deactivated').length;
 
 // Category names for an album, in the album's own order. An id that no longer exists is skipped.
 const categoryName = new Map(categories.map((c) => [c.id, c.name]));
@@ -26,7 +27,9 @@ export const prerender = false;
 
 <AdminLayout title="Albums" heading="Albums">
 	<div class="toolbar">
-		<p class="summary" id="album-count">{albums.length} album{albums.length === 1 ? '' : 's'}</p>
+		<p class="summary">
+			<span id="album-count">{albums.length} album{albums.length === 1 ? '' : 's'}</span><span id="album-count-off">{deactivated > 0 ? ` · ${deactivated} deactivated` : ''}</span>
+		</p>
 		<a href="/admin/albums/new" class="btn" id="create-link">Create new album</a>
 	</div>
 
@@ -48,6 +51,7 @@ export const prerender = false;
 							<th scope="col" class="col-cats">Categories</th>
 							<th scope="col" class="num">Photos</th>
 							<th scope="col">Type</th>
+							<th scope="col" class="col-status">Status</th>
 							<th scope="col" class="col-created">Created</th>
 							<th scope="col" class="col-actions">
 								<span class="visually-hidden">Actions</span>
@@ -56,7 +60,7 @@ export const prerender = false;
 					</thead>
 					<tbody id="album-rows">
 						{albums.map((album) => (
-							<tr data-album-id={album.id}>
+							<tr data-album-id={album.id} data-status={album.status} class:list={{ off: album.status === 'deactivated' }}>
 								<td class="col-cover">
 									<img
 										src={album.cover.thumb}
@@ -71,6 +75,7 @@ export const prerender = false;
 									<span class="title-text">{album.title}</span>
 									{/* Phones drop the Categories and Created columns and show them under the title instead. */}
 									<span class="cats-inline">{namesOf(album.categoryIds).join(', ')}</span>
+									<span class="status-inline" hidden={album.status !== 'deactivated'}>Deactivated</span>
 									<span class="created-inline">
 										<time datetime={album.createdAt} data-local-time>{createdText(album.createdAt)}</time>
 									</span>
@@ -98,17 +103,26 @@ export const prerender = false;
 										);
 									})()}
 								</td>
+								<td class="col-status">
+									<span class={`state state-${album.status}`} data-state>{album.status === 'active' ? 'Active' : 'Deactivated'}</span>
+								</td>
 								<td class="col-created">
 									<time datetime={album.createdAt} data-local-time>{createdText(album.createdAt)}</time>
 								</td>
 								<td class="col-actions">
 									<div class="actions">
-										<a href={`/admin/albums/${album.id}/edit`} class="edit" aria-label={`Edit ${album.title}`}>
+										<a href={`/admin/albums/${album.id}/edit`} class="edit" title="Edit" aria-label={`Edit ${album.title}`}>
 											<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
 												<path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor" />
 											</svg>
 											<span class="edit-text">Edit</span>
 										</a>
+										<button type="button" class="toggle" data-toggle data-id={album.id} data-title={album.title} title={album.status === 'active' ? 'Deactivate' : 'Activate'} aria-label={`${album.status === 'active' ? 'Deactivate' : 'Activate'} ${album.title}`}>
+											<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+												<path data-icon-on={'M6 19h4V5H6v14zm8-14v14h4V5h-4z'} data-icon-off={'M8 5v14l11-7L8 5z'} d={album.status === 'active' ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7L8 5z'} fill="currentColor" />
+											</svg>
+											<span class="toggle-text">{album.status === 'active' ? 'Deactivate' : 'Activate'}</span>
+										</button>
 										<button
 											type="button"
 											class="delete"
@@ -118,6 +132,8 @@ export const prerender = false;
 											data-photos={album.photos.length}
 											data-stored={album.storedCount}
 											aria-label={`Delete ${album.title}`}
+											aria-disabled={album.status === 'active' ? 'true' : undefined}
+											title={album.status === 'active' ? 'Deactivate the album first: only a deactivated album can be deleted' : 'Delete'}
 										>
 											<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
 												<path d="M6 19a2 2 0 002 2h8a2 2 0 002-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor" />
@@ -168,6 +184,12 @@ export const prerender = false;
 	const count = $('#album-count');
 
 	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+	const refreshCounts = () => {
+		const rows = document.querySelectorAll('#album-rows tr');
+		const off = document.querySelectorAll('#album-rows tr[data-status="deactivated"]').length;
+		count.textContent = plural(rows.length, 'album');
+		$('#album-count-off').textContent = off > 0 ? ` · ${off} deactivated` : '';
+	};
 	const say = (message: string, isError = false) => {
 		status.textContent = message;
 		status.classList.toggle('is-error', isError);
@@ -175,9 +197,64 @@ export const prerender = false;
 
 	let pending: { id: string; title: string; row: HTMLTableRowElement; button: HTMLButtonElement } | null = null;
 
+	// ---- activate / deactivate: one click, undone with one click, so no question is asked
+	document.addEventListener('click', async (e) => {
+		const toggle = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-toggle]');
+		if (!toggle) return;
+		const row = toggle.closest<HTMLTableRowElement>('tr')!;
+		const title = toggle.dataset.title ?? '';
+		const next = row.dataset.status === 'active' ? 'deactivated' : 'active';
+		toggle.disabled = true;
+		let response: Response | null = null;
+		try {
+			response = await fetch(`/api/admin/albums/${encodeURIComponent(toggle.dataset.id!)}/status`, {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ status: next }),
+				credentials: 'same-origin',
+			});
+		} catch {
+			// handled below
+		}
+		toggle.disabled = false;
+		toggle.focus(); // a disabled button loses the focus: put it back where the person was
+		if (!response?.ok) {
+			const data = await response?.json().catch(() => null);
+			say(response?.status === 404 ? `“${title}” no longer exists. Reload the page.` : (data?.error ?? `“${title}” could not be changed. Nothing was changed. Please try again.`), true);
+			return;
+		}
+		const off = next === 'deactivated';
+		row.dataset.status = next;
+		row.classList.toggle('off', off);
+		const state = row.querySelector<HTMLElement>('[data-state]')!;
+		state.textContent = off ? 'Deactivated' : 'Active';
+		state.className = `state state-${next}`;
+		row.querySelector<HTMLElement>('.status-inline')!.hidden = !off;
+		toggle.setAttribute('aria-label', `${off ? 'Activate' : 'Deactivate'} ${title}`);
+		toggle.title = off ? 'Activate' : 'Deactivate';
+		toggle.querySelector<HTMLElement>('.toggle-text')!.textContent = off ? 'Activate' : 'Deactivate';
+		const icon = toggle.querySelector<SVGPathElement>('path')!;
+		icon.setAttribute('d', icon.getAttribute(off ? 'data-icon-off' : 'data-icon-on')!);
+		const del = row.querySelector<HTMLElement>('[data-delete]')!;
+		if (off) {
+			del.removeAttribute('aria-disabled');
+			del.title = 'Delete';
+		} else {
+			del.setAttribute('aria-disabled', 'true');
+			del.title = 'Deactivate the album first: only a deactivated album can be deleted';
+		}
+		refreshCounts();
+		say(off ? `Album “${title}” was deactivated: it is no longer shown on the site, and its data is kept. You can activate it again, or delete it.` : `Album “${title}” is active again and shown on the site.`);
+	});
+
 	document.addEventListener('click', (e) => {
 		const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-delete]');
 		if (!button) return;
+		// Only a deactivated album can be deleted (the server refuses as well).
+		if (button.closest('tr')?.dataset.status !== 'deactivated') {
+			say(`“${button.dataset.title}” is active. Deactivate it first: only a deactivated album can be deleted.`, true);
+			return;
+		}
 		const photos = Number(button.dataset.photos ?? 0);
 		const stored = Number(button.dataset.stored ?? 0);
 		pending = { id: button.dataset.id!, title: button.dataset.title ?? '', row: button.closest('tr')!, button };
@@ -241,7 +318,7 @@ export const prerender = false;
 		const next = (row.nextElementSibling ?? row.previousElementSibling)?.querySelector<HTMLElement>('[data-delete]') ?? null;
 		row.remove();
 		const left = document.querySelectorAll('#album-rows tr').length;
-		count.textContent = plural(left, 'album');
+		refreshCounts();
 		if (left === 0) {
 			const empty = document.createElement('p');
 			empty.className = 'empty';
@@ -265,7 +342,7 @@ export const prerender = false;
 		align-items: center;
 		justify-content: space-between;
 		gap: 12px;
-		max-width: 1000px;
+		max-width: 1040px;
 		margin: -8px 0 16px;
 	}
 	.summary {
@@ -274,7 +351,7 @@ export const prerender = false;
 		color: var(--muted);
 	}
 	.status {
-		max-width: 1000px;
+		max-width: 1040px;
 		min-height: 1.4em;
 		margin: 0 0 10px;
 		font-size: 14px;
@@ -318,7 +395,7 @@ export const prerender = false;
 
 	/* The table scrolls sideways inside this box on narrow screens instead of widening the page. */
 	.table-wrap {
-		max-width: 1000px;
+		max-width: 1040px;
 		overflow-x: auto;
 		border: 1px solid var(--border);
 		border-radius: 12px;
@@ -376,6 +453,45 @@ export const prerender = false;
 	}
 	.created-inline {
 		display: none;
+	}
+	.status-inline {
+		display: none;
+		margin-top: 2px;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--muted);
+	}
+	.status-inline[hidden] {
+		display: none;
+	}
+
+	/* The label carries the meaning; the dot and the dimmed row only reinforce it. */
+	.state {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 13px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.state::before {
+		content: '';
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: currentColor;
+	}
+	.state-active {
+		color: #1b6b34;
+	}
+	.state-deactivated {
+		color: var(--muted);
+	}
+	tr.off .col-cover img,
+	tr.off .title-text,
+	tr.off .cats,
+	tr.off .type {
+		opacity: 0.5;
 	}
 
 	.cats {
@@ -442,6 +558,7 @@ export const prerender = false;
 		gap: 8px;
 	}
 	.edit,
+	.toggle,
 	.delete {
 		display: inline-flex;
 		align-items: center;
@@ -463,6 +580,18 @@ export const prerender = false;
 		background: var(--text);
 		color: #fff;
 	}
+	.toggle {
+		border: 1.5px solid var(--border);
+		color: var(--text);
+	}
+	.toggle:hover:not(:disabled) {
+		border-color: var(--text);
+		background: var(--bg-soft);
+	}
+	.toggle:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
 	.delete {
 		border: 1.5px solid #c62828;
 		color: #c62828;
@@ -471,11 +600,23 @@ export const prerender = false;
 		background: #c62828;
 		color: #fff;
 	}
+	/* An active album cannot be deleted: the button stays reachable (it explains why) but looks switched off. */
+	.delete[aria-disabled='true'] {
+		border-color: var(--border);
+		color: var(--muted);
+		cursor: not-allowed;
+	}
+	.delete[aria-disabled='true']:hover {
+		background: transparent;
+		color: var(--muted);
+	}
 	.edit:active,
+	.toggle:active,
 	.delete:active {
 		transform: scale(0.96);
 	}
 	.edit:focus-visible,
+	.toggle:focus-visible,
 	.delete:focus-visible {
 		outline: 2px solid var(--text);
 		outline-offset: 2px;
@@ -590,9 +731,40 @@ export const prerender = false;
 		background: #a81f1f;
 	}
 
-	/* Tablets and phones: Categories make way for the created date shown under the title. */
-	@media (max-width: 800px) {
-		.col-created {
+	/*
+	 * The content column is at most about 990px wide (the admin menu takes the rest), which is too little for eight
+	 * columns and three buttons with words. The buttons keep only their icons (their names stay for screen readers and
+	 * as tooltips), cells are tight, and long cells wrap.
+	 */
+	.edit-text,
+	.toggle-text,
+	.delete-text {
+		display: none;
+	}
+	.edit,
+	.toggle,
+	.delete {
+		width: 36px;
+		height: 36px;
+		padding: 0;
+		justify-content: center;
+	}
+	th,
+	td {
+		padding: 10px 12px;
+	}
+	.col-created {
+		white-space: normal;
+		max-width: 110px;
+	}
+	.col-cats {
+		max-width: 150px;
+	}
+
+	/* Smaller laptops and tablets: Status and Created make way; they appear under the title instead. */
+	@media (max-width: 1100px) {
+		.col-created,
+		.col-status {
 			display: none;
 		}
 		.created-inline {
@@ -601,6 +773,44 @@ export const prerender = false;
 			font-size: 12px;
 			font-weight: 400;
 			color: var(--muted);
+		}
+		.status-inline:not([hidden]) {
+			display: block;
+		}
+	}
+
+	/* Tablets and phones: Categories make way for the created date shown under the title. */
+	@media (max-width: 800px) {
+		.col-created,
+		.col-status {
+			display: none;
+		}
+		.status-inline:not([hidden]) {
+			display: block;
+		}
+		.created-inline {
+			display: block;
+			margin-top: 2px;
+			font-size: 12px;
+			font-weight: 400;
+			color: var(--muted);
+		}
+	}
+
+	/* Narrow tablets: the Categories column makes way too (the names appear under the title). */
+	@media (max-width: 940px) {
+		.col-cats {
+			display: none;
+		}
+		.cats-inline {
+			display: block;
+			margin-top: 2px;
+			font-size: 12px;
+			font-weight: 400;
+			color: var(--muted);
+		}
+		.cats-inline:empty {
+			display: none;
 		}
 	}
 
@@ -620,6 +830,7 @@ export const prerender = false;
 			display: none;
 		}
 		.edit,
+		.toggle,
 		.delete {
 			width: 36px;
 			height: 36px;
@@ -627,10 +838,14 @@ export const prerender = false;
 			justify-content: center;
 		}
 		.edit-text,
+		.toggle-text,
 		.delete-text {
 			display: none;
 		}
+		/* Three buttons would make the table wider than the screen: two by two instead. */
 		.actions {
+			display: grid;
+			grid-template-columns: repeat(2, 36px);
 			gap: 6px;
 		}
 		th,
@@ -653,6 +868,20 @@ export const prerender = false;
 		}
 		.dialog-btn {
 			width: 100%;
+		}
+	}
+	/* The smallest phones: tighter still. */
+	@media (max-width: 400px) {
+		th,
+		td {
+			padding: 10px 8px;
+		}
+		.col-cover {
+			padding-left: 8px;
+		}
+		.col-cover img {
+			width: 36px;
+			height: 36px;
 		}
 	}
 	/* The photo count is the least important column; it makes way for Type and the buttons on small phones. */
