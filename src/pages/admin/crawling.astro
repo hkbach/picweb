@@ -26,18 +26,18 @@ export const prerender = false;
 			crawl posts you have the right to use.
 		</p>
 		<div class="field">
-			<label for="target-url">Target URL</label>
+			<label for="target-url">Target URLs <span class="hint">one per line, up to 10</span></label>
 			<div class="row">
-				<input
+				<textarea
 					id="target-url"
 					name="targetUrl"
-					type="url"
+					rows="4"
 					inputmode="url"
-					placeholder="https://example.com"
+					placeholder={'https://example.com\nhttps://example.org'}
 					autocomplete="off"
 					spellcheck="false"
-					aria-describedby="target-url-error"
-				/>
+					wrap="off"
+					aria-describedby="target-url-error"></textarea>
 				<button type="submit" class="btn" id="crawl-button">Crawl</button>
 			</div>
 			<p class="error" id="target-url-error" role="alert"></p>
@@ -45,6 +45,8 @@ export const prerender = false;
 	</form>
 
 	<p class="status" id="crawl-status" role="status"></p>
+	<p class="failures-title" id="crawl-failures-title" hidden></p>
+	<ul class="failures" id="crawl-failures" hidden></ul>
 
 	<section class="results" id="crawl-results" aria-labelledby="results-title" hidden>
 		<div class="results-head">
@@ -129,7 +131,7 @@ export const prerender = false;
 	};
 
 	const form = document.querySelector<HTMLFormElement>('#crawl-form')!;
-	const input = document.querySelector<HTMLInputElement>('#target-url')!;
+	const input = document.querySelector<HTMLTextAreaElement>('#target-url')!;
 	const error = document.querySelector<HTMLElement>('#target-url-error')!;
 	const button = document.querySelector<HTMLButtonElement>('#crawl-button')!;
 	const status = document.querySelector<HTMLElement>('#crawl-status')!;
@@ -165,7 +167,7 @@ export const prerender = false;
 			return false;
 		}
 	};
-	const PLACEHOLDERS = { web: 'https://example.com', facebook: 'https://www.facebook.com/share/p/…' };
+	const PLACEHOLDERS = { web: 'https://example.com\nhttps://example.org', facebook: 'https://www.facebook.com/share/p/…\nhttps://www.facebook.com/share/p/…' };
 
 	const isHttpUrl = (value: string) => {
 		try {
@@ -193,7 +195,22 @@ export const prerender = false;
 		if (selectedSource() === 'facebook' && !isFacebookUrl(value)) return 'Enter a link to a post on facebook.com.';
 		return '';
 	};
-	const check = () => showFieldError(problemWith(input.value.trim()));
+
+	// ---- several addresses at once: one per line, at most MAX_URLS per crawl
+	const MAX_URLS = 10;
+	// What was typed, one address per line: blank lines are skipped and an address typed twice counts once.
+	const typedUrls = () => [...new Set(input.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))];
+	// The message under the field for the whole text, naming the lines that are wrong (as the person counts them).
+	const problemWithAll = () => {
+		const several = input.value.split(/\r?\n/).filter((line) => line.trim() !== '').length > 1;
+		const bad = input.value
+			.split(/\r?\n/)
+			.flatMap((line, i) => (line.trim() !== '' && problemWith(line.trim()) ? [`${several ? `Line ${i + 1}: ` : ''}${problemWith(line.trim())}`] : []));
+		if (bad.length > 0) return bad.slice(0, 3).join(' ') + (bad.length > 3 ? ` …and ${bad.length - 3} more.` : '');
+		const count = typedUrls().length;
+		return count > MAX_URLS ? `At most ${MAX_URLS} URLs can be crawled at a time (you entered ${count}).` : '';
+	};
+	const check = () => showFieldError(problemWithAll());
 	input.addEventListener('input', check);
 	input.addEventListener('blur', check);
 	for (const radio of sourceInputs) {
@@ -570,43 +587,92 @@ Create the album from links anyway? (“Download and create new album” keeps c
 		if (data.blockedRequests > 0) notes.push(`${data.blockedRequests} request(s) to blocked addresses were refused.`);
 		if (data.note) notes.push(data.note);
 		if (found.length === 0) notes.push('No images matched.');
-		setStatus(notes.join(' '));
+		return notes.join(' ');
 	};
 
+	// The addresses that could not be crawled, shown on the page under the status line (as text only).
+	const failures = document.querySelector<HTMLUListElement>('#crawl-failures')!;
+	const failuresTitle = document.querySelector<HTMLElement>('#crawl-failures-title')!;
+	const showFailures = (items: Array<{ url: string; reason: string }>) => {
+		failuresTitle.textContent = items.length === 1 ? '1 URL could not be crawled:' : `${items.length} URLs could not be crawled:`;
+		failuresTitle.hidden = items.length === 0;
+		failures.replaceChildren(
+			...items.map(({ url, reason }) => {
+				const li = document.createElement('li');
+				const address = document.createElement('span');
+				address.className = 'failed-url';
+				address.textContent = url;
+				const why = document.createElement('span');
+				why.className = 'failed-reason';
+				why.textContent = reason;
+				li.append(address, why);
+				return li;
+			}),
+		);
+		failures.hidden = items.length === 0;
+	};
+
+	// Ctrl+Enter (or Cmd+Enter) crawls; plain Enter starts a new line.
+	input.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+			e.preventDefault();
+			form.requestSubmit();
+		}
+	});
+
+	// One request per address, one after the other: the server crawls one page at a time, and one address failing
+	// must not stop the others.
 	form.addEventListener('submit', async (e) => {
 		e.preventDefault();
-		const url = input.value.trim();
+		const urls = typedUrls();
 		const source = selectedSource();
-		const problem = url === '' ? 'Enter a full URL starting with http:// or https://' : problemWith(url);
+		const problem = urls.length === 0 ? 'Enter at least one full URL starting with http:// or https://' : problemWithAll();
 		if (problem) {
 			showFieldError(problem);
 			input.focus();
 			return;
 		}
 		showFieldError('');
+		showFailures([]);
 
 		button.disabled = true;
-		button.textContent = 'Crawling…';
-		setStatus(source === 'facebook' ? 'Reading the post and going through its photos one by one. This can take a few minutes…' : 'Crawling, this can take up to a minute…');
-
+		input.readOnly = true;
+		const worked: string[] = [];
+		const failed: Array<{ url: string; reason: string }> = [];
 		try {
-			const response = await fetch('/api/admin/crawl', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ url, source }),
-				// A Facebook post is read photo by photo, which takes longer than a page.
-				signal: AbortSignal.timeout(source === 'facebook' ? 200_000 : 90_000),
-			});
-			const data = await response.json().catch(() => null);
-			if (!response.ok) throw new Error(data?.error ?? `Request failed (${response.status}).`);
-			render(data as CrawlResponse, source, url);
-		} catch (err) {
-			const timedOut = err instanceof DOMException && err.name === 'TimeoutError';
-			setStatus(timedOut ? 'The crawl took too long and was stopped.' : err instanceof Error ? err.message : 'Crawl failed.', true);
+			for (const [i, url] of urls.entries()) {
+				const of = urls.length > 1 ? ` (${i + 1} of ${urls.length})` : '';
+				button.textContent = urls.length > 1 ? `Crawling ${i + 1} of ${urls.length}…` : 'Crawling…';
+				setStatus((source === 'facebook' ? 'Reading the post and going through its photos one by one. This can take a few minutes…' : 'Crawling, this can take up to a minute…') + of);
+				try {
+					const response = await fetch('/api/admin/crawl', {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ url, source }),
+						// A Facebook post is read photo by photo, which takes longer than a page.
+						signal: AbortSignal.timeout(source === 'facebook' ? 200_000 : 90_000),
+					});
+					const data = await response.json().catch(() => null);
+					if (!response.ok) throw new Error(data?.error ?? `Request failed (${response.status}).`);
+					worked.push(render(data as CrawlResponse, source, url));
+				} catch (err) {
+					const timedOut = err instanceof DOMException && err.name === 'TimeoutError';
+					failed.push({ url, reason: timedOut ? 'The crawl took too long and was stopped.' : err instanceof Error ? err.message : 'Crawl failed.' });
+				}
+			}
 		} finally {
 			button.disabled = false;
 			button.textContent = 'Crawl';
+			input.readOnly = false;
 		}
+
+		if (urls.length === 1) {
+			// One address: the message is about it, so no list is needed.
+			setStatus(failed.length > 0 ? failed[0].reason : worked[0], failed.length > 0);
+			return;
+		}
+		setStatus([`${worked.length} of ${urls.length} URLs crawled.`, ...worked].join(' '), worked.length === 0);
+		showFailures(failed);
 	});
 </script>
 
@@ -697,6 +763,65 @@ Create the album from links anyway? (“Download and create new album” keeps c
 	}
 	.source-note[hidden] {
 		display: none;
+	}
+	textarea {
+		flex: 1;
+		min-width: 0;
+		min-height: 104px;
+		padding: 10px 14px;
+		resize: vertical;
+		line-height: 1.5;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		font: inherit;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	textarea:focus {
+		outline: 0;
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+	textarea[aria-invalid='true'] {
+		border-color: #c62828;
+	}
+	textarea[readonly] {
+		background: var(--bg-soft);
+	}
+	.row .btn {
+		align-self: flex-start;
+	}
+	.hint {
+		font-weight: 400;
+		color: var(--muted);
+	}
+	.failures-title {
+		max-width: 720px;
+		margin: -16px 0 6px;
+		font-size: 13px;
+		font-weight: 600;
+		color: #c62828;
+	}
+	.failures {
+		max-width: 720px;
+		margin: 0 0 24px;
+		padding: 0 0 0 18px;
+		font-size: 13px;
+		color: #c62828;
+	}
+	.failures-title[hidden],
+	.failures[hidden] {
+		display: none;
+	}
+	.failures :global(li + li) {
+		margin-top: 8px;
+	}
+	.failures :global(.failed-url),
+	.failures :global(.failed-reason) {
+		display: block;
+		overflow-wrap: anywhere;
+	}
+	.failures :global(.failed-url) {
+		font-weight: 600;
 	}
 	input {
 		flex: 1;
