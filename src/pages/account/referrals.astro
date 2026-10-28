@@ -100,19 +100,41 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 			summary.friends.length === 0 ? (
 				<p class="none" id="friends-none">No one has registered through your link yet.</p>
 			) : (
-				<ul class="friends" id="friends">
-					{summary.friends.map((f, i) => (
-						<li>
-							<span class="who">Friend {i + 1}</span>
-							<span class="progress">
-								{plural(f.opened, 'album')} opened · {settings.albumsPerCredit - (f.opened % settings.albumsPerCredit)} more for the next credit
-							</span>
-						</li>
-					))}
-				</ul>
+				<div class="table-wrap">
+					<table id="friends">
+						<caption class="visually-hidden">Accounts that registered through your link, newest first</caption>
+						<thead>
+							<tr>
+								<th scope="col">Account</th>
+								<th scope="col">Joined</th>
+								<th scope="col" class="num">Albums opened</th>
+								<th scope="col" class="num">Credits you earned</th>
+							</tr>
+						</thead>
+						<tbody>
+							{summary.friends.map((f) => (
+								<tr>
+									<th scope="row" class="acct">
+										<span class="fname">{f.name}</span>
+										<span class="femail">{f.email}</span>
+									</th>
+									<td class="when">{when(f.joinedAt)}</td>
+									<td class="num">
+										{f.opened}
+										<span class="next">{settings.albumsPerCredit - (f.opened % settings.albumsPerCredit)} more for the next credit</span>
+									</td>
+									<td class="num earned">{f.earned.toLocaleString('en-US')}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+				<p class="count" id="friends-count">
+					{plural(summary.friendCount, 'account')} registered through your link{summary.friendCount > summary.friends.length ? ` (the latest ${summary.friends.length} are listed)` : ''}.
+				</p>
 			)
 		}
-		<p class="privacy">Friends are not named here: you only see how far each one has got.</p>
+		<p class="privacy">For privacy, each account is shown by first name and last initial, and its email with the middle hidden.</p>
 	</section>
 
 	<section aria-labelledby="history-title">
@@ -419,6 +441,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 		font-size: 14px;
 	}
 	th,
+	td,
 	.claims :global(td) {
 		padding: 10px 14px;
 		text-align: left;
@@ -434,14 +457,16 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 		text-transform: uppercase;
 		white-space: nowrap;
 	}
+	tbody tr + tr > *,
 	.claims :global(tbody tr + tr > *) {
 		border-top: 1px solid var(--bg-soft);
 	}
 	.claims :global(.num),
-	thead .num {
+	.num {
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
+	.when,
 	.claims :global(.when) {
 		color: var(--muted);
 		white-space: nowrap;
@@ -468,7 +493,6 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 		color: #c62828;
 	}
 
-	.friends,
 	.history {
 		margin: 0;
 		padding: 0;
@@ -476,7 +500,6 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 		border: 1px solid var(--border);
 		border-radius: 12px;
 	}
-	.friends li,
 	.history li {
 		display: flex;
 		flex-wrap: wrap;
@@ -485,14 +508,37 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 		padding: 10px 16px;
 		font-size: 14px;
 	}
-	.friends li + li,
 	.history li + li {
 		border-top: 1px solid var(--bg-soft);
 	}
-	.who {
+	/* Accounts that registered through the link. */
+	.acct {
+		font-weight: 400;
+	}
+	.fname,
+	.femail,
+	.next {
+		display: block;
+	}
+	.fname {
 		font-weight: 600;
 	}
-	.progress,
+	.femail,
+	.next,
+	.count {
+		font-size: 12px;
+		color: var(--muted);
+	}
+	.next {
+		font-weight: 400;
+	}
+	.earned {
+		font-weight: 700;
+		color: #1b6b34;
+	}
+	.count {
+		margin: 8px 0 0;
+	}
 	.date {
 		color: var(--muted);
 	}

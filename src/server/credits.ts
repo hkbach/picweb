@@ -141,23 +141,56 @@ export function recordAlbumOpen(userId: string, albumId: number) {
 
 export const balanceOf = (userId: string): number => (db().prepare('SELECT COALESCE(SUM(amount), 0) AS n FROM credit_ledger WHERE user_id = ?').get(userId) as { n: number }).n;
 
+/**
+ * An invited account as its inviter sees it. The inviter is a different person from the friend, so the friend is only
+ * partly shown: first name and the initial of the last name, and an email with its middle hidden ("b***@gmail.com").
+ */
+export interface Friend {
+	name: string;
+	email: string;
+	joinedAt: string;
+	/** Different albums the friend has opened. */
+	opened: number;
+	/** Credits this friend has earned the inviter so far. */
+	earned: number;
+}
+
+export const maskEmail = (email: string): string => {
+	const at = email.lastIndexOf('@');
+	return at <= 0 ? '***' : `${email[0]}***${email.slice(at)}`;
+};
+
 export interface ReferralSummary {
 	code: string;
 	balance: number;
 	settings: CreditSettings;
-	/** The people who signed up through this user's link, oldest first: only how far each has got (no names). */
-	friends: Array<{ opened: number }>;
+	/** The accounts that signed up through this user's link, newest first (at most 200 are listed), and how many there are in all. */
+	friends: Friend[];
+	friendCount: number;
 	history: Array<{ amount: number; reason: 'signup' | 'referral_signup' | 'referral_albums' | 'claim' | 'claim_refund' | 'admin_grant'; at: string }>;
 }
 
 export function referralSummary(userId: string): ReferralSummary {
-	const friends = db()
-		.prepare('SELECT (SELECT COUNT(*) FROM album_opens o WHERE o.user_id = u.id) AS opened FROM users u WHERE u.referred_by = ? ORDER BY u.created_at, u.id')
-		.all(userId) as unknown as Array<{ opened: number }>;
+	const rows = db()
+		.prepare(
+			`SELECT u.first_name, u.last_name, u.email, u.created_at,
+			        (SELECT COUNT(*) FROM album_opens o WHERE o.user_id = u.id) AS opened,
+			        (SELECT COALESCE(SUM(l.amount), 0) FROM credit_ledger l WHERE l.user_id = ? AND l.source_user_id = u.id AND l.reason IN ('referral_signup', 'referral_albums')) AS earned
+			 FROM users u WHERE u.referred_by = ? ORDER BY u.created_at DESC, u.id DESC LIMIT 200`,
+		)
+		.all(userId, userId) as unknown as Array<{ first_name: string; last_name: string; email: string; created_at: string; opened: number; earned: number }>;
+	const friends: Friend[] = rows.map((r) => ({
+		name: `${r.first_name} ${r.last_name.trim().charAt(0).toUpperCase()}.`.trim(),
+		email: maskEmail(r.email),
+		joinedAt: r.created_at,
+		opened: r.opened,
+		earned: r.earned,
+	}));
+	const friendCount = (db().prepare('SELECT COUNT(*) AS n FROM users WHERE referred_by = ?').get(userId) as { n: number }).n;
 	const history = db()
 		.prepare('SELECT amount, reason, created_at FROM credit_ledger WHERE user_id = ? AND amount <> 0 ORDER BY id DESC LIMIT 100')
 		.all(userId) as unknown as Array<{ amount: number; reason: ReferralSummary['history'][number]['reason']; created_at: string }>;
-	return { code: ensureReferralCode(userId), balance: balanceOf(userId), settings: getCreditSettings(), friends, history: history.map((h) => ({ amount: h.amount, reason: h.reason, at: h.created_at })) };
+	return { code: ensureReferralCode(userId), balance: balanceOf(userId), settings: getCreditSettings(), friends, friendCount, history: history.map((h) => ({ amount: h.amount, reason: h.reason, at: h.created_at })) };
 }
 
 /** Figures for the administrator's page. */
