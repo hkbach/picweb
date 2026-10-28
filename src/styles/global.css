@@ -45,3 +45,8 @@ button {
 	clip: rect(0 0 0 0);
 	white-space: nowrap;
 }
+
+/* Visitors who are not signed in: no long-press "save image" menu on iOS either (see the contextmenu rule in scripts/session.ts). */
+html:not([data-auth="user"]) img {
+	-webkit-touch-callout: none;
+}
