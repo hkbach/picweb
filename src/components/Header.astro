@@ -1,3 +1,20 @@
+---
+interface Props {
+	/** Show the "earn rewards" line above the header (the Home page asks for it; the script shows it only to who should see it). */
+	notice?: boolean;
+}
+const { notice = false } = Astro.props;
+---
+
+{
+	notice && (
+		<div class="notice" id="referral-notice" role="status" hidden>
+			<p>
+				<span aria-hidden="true">💰</span> You can earn rewards: invite friends and collect credits in <a href="/account/referrals">Account → Referrals</a>.
+			</p>
+		</div>
+	)
+}
 <header class="header">
 	<div class="container bar">
 		<a href="/" class="logo" aria-label="Picweb home">
@@ -24,6 +41,13 @@
 </header>
 
 <script>
+	import { session } from '../scripts/session';
+
+	// The server says whether this user still has to be told (see users.referrals_notice), so the line is the same on every
+	// browser and device and goes away only once the Referrals page has been opened.
+	const notice = document.querySelector<HTMLElement>('#referral-notice');
+	if (notice) session.then((user) => (notice.hidden = !user?.referralsNotice));
+
 	const header = document.querySelector<HTMLElement>('.header');
 	const toggle = header?.querySelector<HTMLElement>('[data-search-toggle]');
 	const input = header?.querySelector<HTMLInputElement>('.search input');
@@ -37,6 +61,31 @@
 </script>
 
 <style>
+	.notice {
+		background: var(--text);
+		color: #fff;
+		font-size: 14px;
+		line-height: 1.4;
+		text-align: center;
+	}
+	.notice[hidden] {
+		display: none;
+	}
+	.notice p {
+		margin: 0;
+		padding: 9px 16px;
+	}
+	.notice a {
+		color: inherit;
+		font-weight: 700;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	.notice a:focus-visible {
+		outline: 2px solid #fff;
+		outline-offset: 2px;
+		border-radius: 2px;
+	}
 	.header {
 		position: sticky;
 		top: 0;

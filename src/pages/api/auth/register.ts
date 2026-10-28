@@ -34,7 +34,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 		const inviterId = typeof body.ref === 'string' ? findInviter(body.ref) : null;
 		transaction(() => {
 			db()
-				.prepare("INSERT INTO users (id, first_name, last_name, email, password_hash, role, created_at, referral_code, referred_by) VALUES (?, ?, ?, ?, ?, 'user', ?, ?, ?)")
+				.prepare("INSERT INTO users (id, first_name, last_name, email, password_hash, role, created_at, referral_code, referred_by, referrals_notice) VALUES (?, ?, ?, ?, ?, 'user', ?, ?, ?, 1)")
 				.run(id, firstName, lastName, email, passwordHash, new Date().toISOString(), newReferralCode(), inviterId);
 			registerCredits(id, inviterId);
 		});
@@ -44,7 +44,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 	}
 
 	const { token, expires } = createSession(id);
-	const response = json({ user: toPublic({ id, firstName, lastName, email, role: 'user', mustChangePassword: false, avatar: null }) }, 201);
+	const response = json({ user: toPublic({ id, firstName, lastName, email, role: 'user', mustChangePassword: false, avatar: null, referralsNotice: true }) }, 201);
 	response.headers.append('set-cookie', sessionCookie(token, expires));
 	return response;
 };

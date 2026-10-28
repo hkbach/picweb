@@ -14,6 +14,8 @@ export interface SessionUser {
 	role: 'user' | 'admin';
 	mustChangePassword: boolean;
 	avatar: string | null;
+	/** True until the user has opened the Referrals page for the first time after registering. */
+	referralsNotice: boolean;
 }
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -50,15 +52,15 @@ export function userFromRequest(request: Request): SessionUser | null {
 	if (!token) return null;
 	const row = db()
 		.prepare(
-			`SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.must_change_password, u.avatar
+			`SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.must_change_password, u.avatar, u.referrals_notice
 			 FROM sessions s JOIN users u ON u.id = s.user_id
 			 WHERE s.token_hash = ? AND s.expires_at > ? AND u.status = 'active'`,
 		)
 		.get(hash(token), new Date().toISOString()) as
-		| { id: string; first_name: string; last_name: string; email: string; role: 'user' | 'admin'; must_change_password: number; avatar: string | null }
+		| { id: string; first_name: string; last_name: string; email: string; role: 'user' | 'admin'; must_change_password: number; avatar: string | null; referrals_notice: number }
 		| undefined;
 	if (!row) return null;
-	return { id: row.id, firstName: row.first_name, lastName: row.last_name, email: row.email, role: row.role, mustChangePassword: row.must_change_password === 1, avatar: row.avatar };
+	return { id: row.id, firstName: row.first_name, lastName: row.last_name, email: row.email, role: row.role, mustChangePassword: row.must_change_password === 1, avatar: row.avatar, referralsNotice: row.referrals_notice === 1 };
 }
 
 export function destroySession(request: Request) {

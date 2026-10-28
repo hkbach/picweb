@@ -53,19 +53,23 @@ export class StorageError extends Error {
 /** Names this server gives stored pictures: 32 hex characters of the content hash, then the type. */
 export const MEDIA_KEY = /^[a-f0-9]{32}\.(jpg|png|gif|webp)$/;
 
+/** Avatars are kept apart from the album pictures, under their own folder-like prefix. */
+export const AVATAR_KEY = /^avatars\/[a-f0-9]{32}\.(jpg|png|webp)$/;
+export const isStorageKey = (key: string) => MEDIA_KEY.test(key) || AVATAR_KEY.test(key);
+
 export const MEDIA_TYPES: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' };
 
 export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 
 const local: PhotoStorage = {
 	async put(key, bytes) {
-		if (!MEDIA_KEY.test(key)) throw new Error('Invalid storage key.');
-		await mkdir(UPLOADS_DIR, { recursive: true });
+		if (!isStorageKey(key)) throw new Error('Invalid storage key.');
+		await mkdir(path.dirname(path.join(UPLOADS_DIR, key)), { recursive: true });
 		await writeFile(path.join(UPLOADS_DIR, key), bytes);
 		return `/api/media/${key}`;
 	},
 	async remove(key) {
-		if (!MEDIA_KEY.test(key)) return;
+		if (!isStorageKey(key)) return;
 		await unlink(path.join(UPLOADS_DIR, key)).catch(() => {});
 	},
 	publicUrl: (key) => `/api/media/${key}`,
@@ -75,7 +79,8 @@ const local: PhotoStorage = {
 		let others = 0;
 		for (const name of names) {
 			if (!MEDIA_KEY.test(name)) {
-				others++;
+				// the avatars folder is ours; anything else is counted as not ours
+				if (name !== 'avatars') others++;
 				continue;
 			}
 			try {
@@ -196,7 +201,7 @@ function r2Storage(config: R2Config): PhotoStorage {
 		})));
 	return {
 		async put(key, bytes, contentType) {
-			if (!MEDIA_KEY.test(key)) throw new Error('Invalid storage key.');
+			if (!isStorageKey(key)) throw new Error('Invalid storage key.');
 			try {
 				const { s3, lib } = await open();
 				await s3.send(
@@ -216,7 +221,7 @@ function r2Storage(config: R2Config): PhotoStorage {
 			return `${config.publicUrl}/${key}`;
 		},
 		async remove(key) {
-			if (!MEDIA_KEY.test(key)) return;
+			if (!isStorageKey(key)) return;
 			const { s3, lib } = await open();
 			await s3.send(new lib.DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
 		},
@@ -231,6 +236,7 @@ function r2Storage(config: R2Config): PhotoStorage {
 				do {
 					const page = await s3.send(new lib.ListObjectsV2Command({ Bucket: config.bucket, ContinuationToken: token, MaxKeys: 1000 }));
 					for (const object of page.Contents ?? []) {
+						if (object.Key && AVATAR_KEY.test(object.Key)) continue; // an avatar: this site's, but not an album picture
 						if (!object.Key || !MEDIA_KEY.test(object.Key)) {
 							others++;
 							continue;
@@ -276,7 +282,7 @@ export function getStorage(): PhotoStorage | null {
 
 /** Reads a stored picture from the local driver (used to serve /api/media). */
 export async function readLocal(key: string): Promise<Buffer | null> {
-	if (!MEDIA_KEY.test(key)) return null;
+	if (!isStorageKey(key)) return null;
 	try {
 		return await readFile(path.join(UPLOADS_DIR, key));
 	} catch {

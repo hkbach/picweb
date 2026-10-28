@@ -172,6 +172,9 @@ const user = Astro.locals.user!;
 			return say(saved.error, true);
 		}
 		applyProfile(saved.user);
+		// What was saved is now the avatar of the account: a stored picture comes back as an address, which later saves send as it is.
+		avatar = saved.user.avatar;
+		renderPreview();
 
 		if (!wantsPassword) {
 			saveButton.disabled = false;

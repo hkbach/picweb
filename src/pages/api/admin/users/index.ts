@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { randomUUID } from 'node:crypto';
 import { db, transaction } from '../../../../server/db.ts';
 import { audit } from '../../../../server/audit.ts';
+import { releaseAvatars } from '../../../../server/avatars.ts';
 import { hashPassword, passwordProblem } from '../../../../server/passwords.ts';
 import { destroyUserSessions } from '../../../../server/sessions.ts';
 import { cleanEmail, cleanName, readJson } from '../../../../server/validate.ts';
@@ -62,6 +63,8 @@ export const POST: APIRoute = async ({ request }) => {
 		throw error;
 	}
 
+	// Avatars of the accounts deleted below: their stored pictures go once the change is saved.
+	const deletedAvatars: Array<string | null> = [];
 	try {
 		const ids = transaction(() => {
 			const map: Record<string, string> = {};
@@ -73,6 +76,7 @@ export const POST: APIRoute = async ({ request }) => {
 				if (user === admin.id) throw new Refused('You cannot delete your own account.');
 				const row = find.get(user) as Row | undefined;
 				if (!row) continue; // already gone
+				deletedAvatars.push((db().prepare('SELECT avatar FROM users WHERE id = ?').get(user) as { avatar: string | null }).avatar);
 				db().prepare('DELETE FROM users WHERE id = ?').run(user);
 				if (row.role === 'admin' && adminsLeft() === 0) throw new Refused('The last administrator cannot be deleted.');
 				audit(admin.id, 'user.delete', user);
@@ -120,6 +124,7 @@ export const POST: APIRoute = async ({ request }) => {
 			}
 			return map;
 		});
+		await releaseAvatars(deletedAvatars);
 		return json({ ok: true, ids });
 	} catch (error) {
 		if (error instanceof Refused) return json({ error: error.message }, error.status);

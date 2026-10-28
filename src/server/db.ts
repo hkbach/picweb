@@ -211,6 +211,12 @@ const MIGRATIONS: string[] = [
 	ALTER TABLE credit_ledger_new RENAME TO credit_ledger;
 	CREATE INDEX credit_ledger_user ON credit_ledger(user_id);
 	`,
+	`
+	-- The Home page tells a newly registered user that they can earn rewards on the Referrals page. It stays up until that
+	-- page is opened, on any browser or device, so it is kept here with the account (1 = still to show). Only a
+	-- registration sets it: accounts that already exist, and ones an administrator creates, do not get the notice.
+	ALTER TABLE users ADD COLUMN referrals_notice INTEGER NOT NULL DEFAULT 0;
+	`,
 ];
 
 type Db = DatabaseSync;

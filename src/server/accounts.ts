@@ -9,4 +9,5 @@ export const toPublic = (user: SessionUser) => ({
 	role: user.role,
 	mustChangePassword: user.mustChangePassword,
 	avatar: user.avatar,
+	referralsNotice: user.referralsNotice,
 });

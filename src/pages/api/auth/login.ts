@@ -22,6 +22,7 @@ interface Row {
 	status: string;
 	must_change_password: number;
 	avatar: string | null;
+	referrals_notice: number;
 	password_hash: string;
 }
 
@@ -40,7 +41,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 	}
 
 	const row = db()
-		.prepare('SELECT id, first_name, last_name, email, role, status, must_change_password, avatar, password_hash FROM users WHERE email = ?')
+		.prepare('SELECT id, first_name, last_name, email, role, status, must_change_password, avatar, referrals_notice, password_hash FROM users WHERE email = ?')
 		.get(email) as Row | undefined;
 
 	if (!row) {
@@ -67,6 +68,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 			role: row.role,
 			mustChangePassword: row.must_change_password === 1,
 			avatar: row.avatar,
+			referralsNotice: row.referrals_notice === 1,
 		}),
 	});
 	response.headers.append('set-cookie', sessionCookie(token, expires));

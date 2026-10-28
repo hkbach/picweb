@@ -137,6 +137,11 @@ export function recordAlbumOpen(userId: string, albumId: number) {
 	});
 }
 
+/** The user opened their Referrals page: the Home page stops telling them about the rewards. */
+export const markReferralsSeen = (userId: string) => {
+	db().prepare('UPDATE users SET referrals_notice = 0 WHERE id = ? AND referrals_notice = 1').run(userId);
+};
+
 // ---- what the pages show
 
 export const balanceOf = (userId: string): number => (db().prepare('SELECT COALESCE(SUM(amount), 0) AS n FROM credit_ledger WHERE user_id = ?').get(userId) as { n: number }).n;

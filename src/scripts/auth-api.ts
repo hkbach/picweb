@@ -8,6 +8,8 @@ export interface AccountUser {
 	role: 'user' | 'admin';
 	mustChangePassword: boolean;
 	avatar: string | null;
+	/** Show the "earn rewards" notice on the Home page until the Referrals page has been opened. */
+	referralsNotice: boolean;
 }
 
 export type AuthResult = { ok: true; user: AccountUser } | { ok: false; error: string };

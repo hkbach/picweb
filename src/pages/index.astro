@@ -43,7 +43,7 @@ const jsonLd = {
 ---
 
 <Layout title={title} description={description} canonicalPath={canonicalPath} image={covers[0]?.thumb} jsonLd={jsonLd} noindex={noindex}>
-	<Header />
+	<Header notice />
 	<main>
 		<Hero />
 		{categories.length > 0 && <TopicsNav topics={categories} selectedId={selected.id} />}

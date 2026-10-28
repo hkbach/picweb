@@ -1,11 +1,13 @@
 ---
 import AccountLayout from '../../layouts/AccountLayout.astro';
-import { referralSummary } from '../../server/credits.ts';
+import { markReferralsSeen, referralSummary } from '../../server/credits.ts';
 import { CLAIM_LABELS, claimable, listClaimsOf, usd } from '../../server/claims.ts';
 
 export const prerender = false;
 
 const user = Astro.locals.user!;
+// Opening this page is what ends the notice on the Home page (kept on the server, so every browser and device sees it).
+markReferralsSeen(user.id);
 const summary = referralSummary(user.id);
 const { settings } = summary;
 const claims = listClaimsOf(user.id);
