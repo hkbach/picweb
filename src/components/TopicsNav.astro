@@ -1,11 +1,14 @@
 ---
 interface Props {
-	topics: string[];
+	topics: Array<{ id: string; name: string }>;
+	/** The category whose albums are shown. */
+	selectedId: string;
 }
 
-const { topics } = Astro.props;
-// The first category is the one selected by default and is set apart from the rest.
+const { topics, selectedId } = Astro.props;
+// The first category is the default one and is set apart from the rest by a divider.
 const [first, ...rest] = topics;
+const link = (id: string) => `/?category=${encodeURIComponent(id)}`;
 ---
 
 <nav class="topics" aria-label="Topics" data-topics>
@@ -16,9 +19,9 @@ const [first, ...rest] = topics;
 			</svg>
 		</button>
 		<div class="list" data-list>
-			<a href="#" class="active">{first}</a>
+			<a href={link(first.id)} class:list={{ active: first.id === selectedId }} aria-current={first.id === selectedId ? 'true' : undefined}>{first.name}</a>
 			{rest.length > 0 && <span class="sep" aria-hidden="true" />}
-			{rest.map((t) => <a href="#">{t}</a>)}
+			{rest.map((t) => <a href={link(t.id)} class:list={{ active: t.id === selectedId }} aria-current={t.id === selectedId ? 'true' : undefined}>{t.name}</a>)}
 		</div>
 		<button type="button" class="arrow next" aria-label="Scroll topics right" data-dir="1">
 			<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
@@ -52,6 +55,10 @@ const [first, ...rest] = topics;
 
 		list.addEventListener('scroll', update, { passive: true });
 		new ResizeObserver(update).observe(list);
+
+		// After choosing a category the page reloads at the start of the list: bring the chosen one into view.
+		const active = list.querySelector<HTMLElement>('a.active');
+		if (active) list.scrollLeft = Math.max(0, active.offsetLeft - (list.clientWidth - active.offsetWidth) / 2);
 		update();
 	}
 </script>
@@ -90,9 +97,12 @@ const [first, ...rest] = topics;
 	a:hover {
 		color: var(--text);
 	}
+	/* The chosen category: bold, 2px larger than the others (14px), and underlined. */
 	a.active {
 		color: var(--text);
 		border-bottom-color: var(--text);
+		font-weight: 700;
+		font-size: 16px;
 	}
 	.sep {
 		width: 1px;

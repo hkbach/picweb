@@ -100,6 +100,16 @@ export function listAlbums(): Album[] {
 	});
 }
 
+/**
+ * What the Homepage shows: one picture per album, its cover. With a category given, only the albums in that
+ * category; an album that belongs to no category is therefore never listed once a category is chosen.
+ */
+export function listAlbumCovers(categoryId?: string): Photo[] {
+	return listAlbums()
+		.filter((a) => !categoryId || a.categoryIds.includes(categoryId))
+		.map((a) => a.cover);
+}
+
 export function getAlbum(id: number): Album | undefined {
 	return listAlbums().find((a) => a.id === id);
 }

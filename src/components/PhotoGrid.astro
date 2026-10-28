@@ -3,18 +3,20 @@ import PhotoCard from './PhotoCard.astro';
 import type { Photo } from '../server/repo.ts';
 
 interface Props {
+	/** One picture per album (its cover). */
 	photos: Photo[];
+	empty?: string;
 }
 
 const PAGE_SIZE = 12;
 
-const { photos } = Astro.props;
+const { photos, empty = 'No albums yet. Check back soon.' } = Astro.props;
 const batches: Photo[][] = [];
 for (let i = 0; i < photos.length; i += PAGE_SIZE) batches.push(photos.slice(i, i + PAGE_SIZE));
 ---
 
 <section class="container grid" aria-label="Photos" data-grid>
-	{photos.length === 0 && <p class="empty">No photos yet. Check back soon.</p>}
+	{photos.length === 0 && <p class="empty">{empty}</p>}
 	{
 		batches.map((batch, i) => (
 			<div class="batch" hidden={i > 0}>

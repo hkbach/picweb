@@ -9,7 +9,7 @@ const { photo } = Astro.props;
 ---
 
 <figure class="card">
-	<a href="#" class="media" data-photo-id={photo.id} aria-label={`Open album: ${photo.alt}`}>
+	<a href="#" class="media" data-photo-id={photo.id} aria-label={`Open album: ${photo.albumTitle}`}>
 		<img
 			src={photo.thumb}
 			alt={photo.alt}

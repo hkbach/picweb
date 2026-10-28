@@ -8,21 +8,25 @@ import PhotoGrid from '../components/PhotoGrid.astro';
 import LoginModal from '../components/LoginModal.astro';
 import BackToTop from '../components/BackToTop.astro';
 import AlbumModal from '../components/AlbumModal.astro';
-import { listCategories, listPhotos } from '../server/repo.ts';
+import { listAlbumCovers, listCategories, listPhotos } from '../server/repo.ts';
 
 // Rendered on demand: what is shown comes from the database (albums, photos and categories an administrator manages).
 export const prerender = false;
-const photos = listPhotos();
 const categories = listCategories();
+// The chosen category comes from the address (/?category=<id>); no choice, or an unknown one, means the first.
+const selected = categories.find((c) => c.id === Astro.url.searchParams.get('category')) ?? categories[0];
+// The grid shows one cover per album of that category; the popup still needs every photo of every album.
+const covers = listAlbumCovers(selected?.id);
+const photos = listPhotos();
 ---
 
 <Layout title="Picweb – Free high-resolution photos">
 	<Header />
 	<main>
 		<Hero />
-		{categories.length > 0 && <TopicsNav topics={categories.map((c) => c.name)} />}
+		{categories.length > 0 && <TopicsNav topics={categories} selectedId={selected.id} />}
 		<ViewToggle />
-		<PhotoGrid photos={photos} />
+		<PhotoGrid photos={covers} empty={selected ? `No albums in “${selected.name}” yet.` : 'No albums yet. Check back soon.'} />
 	</main>
 	<AlbumModal photos={photos} />
 	<LoginModal />
