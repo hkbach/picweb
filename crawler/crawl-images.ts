@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { assertPublicHost } from './ssrf-guard.ts';
 import { startEgressProxy } from './egress-proxy.ts';
+import { describeWalk, walkFacebookViewer } from './facebook-viewer.ts';
 
 export interface CrawlOptions {
 	/** Stop after this many images. */
@@ -24,6 +25,10 @@ export interface CrawlOptions {
 
 export type CrawlSource = 'web' | 'facebook';
 
+/** Most photos read from one Facebook post (an album holds at most 50). */
+const MAX_FACEBOOK_PHOTOS = 50;
+const FACEBOOK_PAUSE_MS = 700;
+
 /** A failure whose message is safe to show to the administrator. */
 export class CrawlError extends Error {}
 
@@ -44,6 +49,8 @@ export interface CrawlResult {
 	/** Requests refused because they pointed at a blocked address or scheme. */
 	blockedRequests: number;
 	source: CrawlSource;
+	/** What the crawler did that the administrator should know about (for example how the Facebook photo viewer went). */
+	note?: string;
 }
 
 // What the page hands back is data from an untrusted site: it is checked and capped before use.
@@ -159,13 +166,20 @@ export async function crawlImages(targetUrl: string, options: CrawlOptions = {})
 		browser.close().catch(() => {});
 	}, opts.totalTimeoutMs);
 
+	const startedAt = Date.now();
 	let blockedRequests = 0;
+	let note: string | undefined;
+	// Facebook: the post's own address and title, read before the photo viewer replaces them.
+	let post = { url: '', title: '' };
 	try {
 		const context = await browser.newContext({
 			userAgent: opts.userAgent,
 			viewport: { width: 1366, height: 900 },
 			acceptDownloads: false,
 			serviceWorkers: 'block',
+			// Facebook shows its pages in the visitor's language, and the photo viewer is found by its (English) button
+			// names, so on Facebook the browser asks for English.
+			...(facebook ? { locale: 'en-US' } : {}),
 		});
 
 		// Used only to filter the URLs returned to the admin (nothing connects on the strength of these
@@ -295,6 +309,21 @@ export async function crawlImages(targetUrl: string, options: CrawlOptions = {})
 			return found;
 		}));
 
+		// Facebook: the post page only shows reduced pictures. Open the photo viewer and go through the photos with
+		// its "Next photo" button; the viewer shows each one at a much larger size. A picture seen both ways is kept
+		// once, at the larger size (see facebookPictures).
+		if (facebook) {
+			post = { url: page.url(), title: await page.title() };
+			const walk = await walkFacebookViewer(page, {
+				maxPhotos: MAX_FACEBOOK_PHOTOS,
+				pauseMs: FACEBOOK_PAUSE_MS,
+				// leave time to finish and answer before the overall deadline closes the browser
+				stopAt: startedAt + opts.totalTimeoutMs - 20_000,
+			});
+			raw.push(...cleanItems(walk.photos.map((p) => ({ ...p, source: 'img' }))));
+			note = describeWalk(walk.photos.length, walk.stopped);
+		}
+
 		// Keep only real web images, drop small ones, remove duplicates (first occurrence wins).
 		// An image whose size still cannot be determined cannot be shown to meet the minimum, so it is dropped.
 		const seen = new Set<string>();
@@ -312,11 +341,12 @@ export async function crawlImages(targetUrl: string, options: CrawlOptions = {})
 
 		return {
 			requestedUrl: url.href,
-			finalUrl: page.url(),
-			title: (await page.title()).replace(/\s*\|\s*Facebook\s*$/i, '').slice(0, MAX_ALT_LENGTH),
+			finalUrl: facebook ? post.url : page.url(),
+			title: (facebook ? post.title : await page.title()).replace(/\s*\|\s*Facebook\s*$/i, '').slice(0, MAX_ALT_LENGTH),
 			images,
 			blockedRequests: blockedRequests + proxy.blocked(),
 			source: opts.source,
+			...(note ? { note } : {}),
 		};
 	} catch (error) {
 		if (timedOut) throw new Error('The page took too long and the crawl was stopped.');

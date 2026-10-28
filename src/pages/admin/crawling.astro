@@ -19,9 +19,10 @@ export const prerender = false;
 			</label>
 		</fieldset>
 		<p class="source-note" id="source-note" hidden>
-			For a link to ONE public Facebook post. Picweb does not sign in to Facebook, so private posts and groups cannot be read. Pictures come
-			as Facebook shows them (usually reduced in size), and their addresses stop working after a while, so keep them with “Download and
-			create new album”. Facebook’s terms limit automated collection: only crawl posts you have the right to use.
+			For a link to ONE public Facebook post. Picweb opens the post’s photo viewer and goes through the photos one by one (up to 50), so the
+			pictures come at the larger size Facebook shows there. It does not sign in to Facebook, so private posts and groups cannot be read, and
+			it stops if Facebook asks for a login. The pictures’ addresses stop working after a while, so keep them with “Download and create new
+			album”. Facebook’s terms limit automated collection: only crawl posts you have the right to use.
 		</p>
 		<div class="field">
 			<label for="target-url">Target URL</label>
@@ -127,6 +128,8 @@ export const prerender = false;
 		images: FoundImage[];
 		blockedRequests: number;
 		source?: 'web' | 'facebook';
+		/** What the crawler did that is worth telling (how the Facebook photo viewer went). */
+		note?: string;
 	}
 
 	// ---- where to crawl: any web page, or one public Facebook post
@@ -489,6 +492,7 @@ export const prerender = false;
 
 		const notes = [`Crawled ${data.finalUrl}`];
 		if (data.blockedRequests > 0) notes.push(`${data.blockedRequests} request(s) to blocked addresses were refused.`);
+		if (data.note) notes.push(data.note);
 		if (images.length === 0) notes.push('No images matched.');
 		setStatus(notes.join(' '));
 	};
@@ -508,14 +512,15 @@ export const prerender = false;
 		button.disabled = true;
 		button.textContent = 'Crawling…';
 		results.hidden = true;
-		setStatus('Crawling, this can take up to a minute…');
+		setStatus(source === 'facebook' ? 'Reading the post and going through its photos one by one. This can take a few minutes…' : 'Crawling, this can take up to a minute…');
 
 		try {
 			const response = await fetch('/api/admin/crawl', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ url, source }),
-				signal: AbortSignal.timeout(90_000),
+				// A Facebook post is read photo by photo, which takes longer than a page.
+				signal: AbortSignal.timeout(source === 'facebook' ? 200_000 : 90_000),
 			});
 			const data = await response.json().catch(() => null);
 			if (!response.ok) throw new Error(data?.error ?? `Request failed (${response.status}).`);

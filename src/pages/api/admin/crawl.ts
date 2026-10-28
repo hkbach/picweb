@@ -11,6 +11,8 @@ export const prerender = false;
 //  - one crawl at a time, with fixed limits that the client cannot raise.
 const LIMITS = { maxImages: 300, timeoutMs: 30_000, minSize: 400 };
 
+const FACEBOOK_TOTAL_MS = 180_000;
+
 let busy = false;
 
 export const POST: APIRoute = async ({ request }) => {
@@ -37,7 +39,8 @@ export const POST: APIRoute = async ({ request }) => {
 	if (busy) return json({ error: 'Another crawl is already running. Try again in a moment.' }, 429);
 	busy = true;
 	try {
-		return json(await crawlImages(target, { ...LIMITS, source }));
+		// Going through a post's photos one by one takes longer than reading a page.
+		return json(await crawlImages(target, { ...LIMITS, source, ...(source === 'facebook' ? { totalTimeoutMs: FACEBOOK_TOTAL_MS } : {}) }));
 	} catch (error) {
 		// The first line is the useful part; Playwright appends a long call log.
 		const message = error instanceof Error ? error.message.split('\n')[0] : 'Crawl failed.';
