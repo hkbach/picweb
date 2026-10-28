@@ -18,20 +18,25 @@ export interface CreditSettings {
 	referralAlbums: number;
 	/** How many different albums the friend opens for one such grant. */
 	albumsPerCredit: number;
+	/** Cash-out rate: this many credits are worth 1 USD. */
+	creditsPerUsd: number;
 }
 
-export const CREDIT_DEFAULTS: CreditSettings = { signup: 10, referralSignup: 0, referralAlbums: 1, albumsPerCredit: 5 };
-export const CREDIT_LIMITS = { points: { min: 0, max: 1000 }, albumsPerCredit: { min: 1, max: 100 } };
+export const CREDIT_DEFAULTS: CreditSettings = { signup: 10, referralSignup: 0, referralAlbums: 1, albumsPerCredit: 5, creditsPerUsd: 100 };
+export const CREDIT_LIMITS = { points: { min: 0, max: 1000 }, albumsPerCredit: { min: 1, max: 100 }, creditsPerUsd: { min: 1, max: 100000 } };
 
 const KEYS: Record<keyof CreditSettings, string> = {
 	signup: 'credits.signup',
 	referralSignup: 'credits.referral_signup',
 	referralAlbums: 'credits.referral_albums',
 	albumsPerCredit: 'credits.albums_per_credit',
+	creditsPerUsd: 'credits.credits_per_usd',
 };
 
+const limitsOf = (field: keyof CreditSettings) => (field === 'albumsPerCredit' ? CREDIT_LIMITS.albumsPerCredit : field === 'creditsPerUsd' ? CREDIT_LIMITS.creditsPerUsd : CREDIT_LIMITS.points);
+
 const inRange = (field: keyof CreditSettings, n: number) => {
-	const { min, max } = field === 'albumsPerCredit' ? CREDIT_LIMITS.albumsPerCredit : CREDIT_LIMITS.points;
+	const { min, max } = limitsOf(field);
 	return Number.isInteger(n) && n >= min && n <= max;
 };
 
@@ -51,6 +56,7 @@ const LABELS: Record<keyof CreditSettings, string> = {
 	referralSignup: 'Credits when an invited friend registers',
 	referralAlbums: 'Credits for each batch of albums the friend opens',
 	albumsPerCredit: 'Albums in one batch',
+	creditsPerUsd: 'Credits worth 1 USD',
 };
 
 /** Checks what an administrator sent; every field is required and must be a whole number in range. */
@@ -59,7 +65,7 @@ export function parseCreditSettings(body: Record<string, unknown> | null): { ok:
 	const value = { ...CREDIT_DEFAULTS };
 	for (const field of Object.keys(KEYS) as Array<keyof CreditSettings>) {
 		const n = body[field];
-		const { min, max } = field === 'albumsPerCredit' ? CREDIT_LIMITS.albumsPerCredit : CREDIT_LIMITS.points;
+		const { min, max } = limitsOf(field);
 		if (typeof n !== 'number' || !inRange(field, n)) return { ok: false, error: `${LABELS[field]}: enter a whole number from ${min} to ${max}.` };
 		value[field] = n;
 	}
@@ -70,7 +76,7 @@ export function saveCreditSettings(actorId: string, value: CreditSettings) {
 	transaction(() => {
 		const upsert = db().prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
 		for (const field of Object.keys(KEYS) as Array<keyof CreditSettings>) upsert.run(KEYS[field], String(value[field]));
-		audit(actorId, 'credits.settings', undefined, `signup ${value.signup}, friend signup ${value.referralSignup}, ${value.referralAlbums} per ${value.albumsPerCredit} albums`);
+		audit(actorId, 'credits.settings', undefined, `signup ${value.signup}, friend signup ${value.referralSignup}, ${value.referralAlbums} per ${value.albumsPerCredit} albums, ${value.creditsPerUsd} credits per USD`);
 	});
 }
 
@@ -141,7 +147,7 @@ export interface ReferralSummary {
 	settings: CreditSettings;
 	/** The people who signed up through this user's link, oldest first: only how far each has got (no names). */
 	friends: Array<{ opened: number }>;
-	history: Array<{ amount: number; reason: 'signup' | 'referral_signup' | 'referral_albums'; at: string }>;
+	history: Array<{ amount: number; reason: 'signup' | 'referral_signup' | 'referral_albums' | 'claim' | 'claim_refund'; at: string }>;
 }
 
 export function referralSummary(userId: string): ReferralSummary {

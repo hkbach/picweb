@@ -1,21 +1,42 @@
 ---
 import AccountLayout from '../../layouts/AccountLayout.astro';
 import { referralSummary } from '../../server/credits.ts';
+import { CLAIM_LABELS, claimable, listClaimsOf, usd } from '../../server/claims.ts';
 
 export const prerender = false;
 
-const summary = referralSummary(Astro.locals.user!.id);
+const user = Astro.locals.user!;
+const summary = referralSummary(user.id);
 const { settings } = summary;
+const claims = listClaimsOf(user.id);
+const rate = settings.creditsPerUsd;
+const { dollars } = claimable(summary.balance, rate);
 const link = `${Astro.url.origin}/?ref=${summary.code}`;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const REASONS = { signup: 'Welcome credits for registering', referral_signup: 'A friend registered with your link', referral_albums: 'A friend opened albums' } as const;
+const REASONS = {
+	signup: 'Welcome credits for registering',
+	referral_signup: 'A friend registered with your link',
+	referral_albums: 'A friend opened albums',
+	claim: 'Credits claimed through PayPal',
+	claim_refund: 'A claim was rejected: credits returned',
+} as const;
 const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 ---
 
 <AccountLayout title="Referrals" heading="Referrals">
-	<section class="balance" aria-labelledby="balance-title">
+	<section class="balance" aria-labelledby="balance-title" data-rate={rate} data-balance={summary.balance}>
 		<h2 id="balance-title">Your credits</h2>
 		<p class="amount" id="balance">{summary.balance.toLocaleString('en-US')}</p>
+		<p class="worth" id="worth">Worth ${(summary.balance / rate).toFixed(2)} ({rate.toLocaleString('en-US')} credits = 1 USD)</p>
+		<div class="claim-row">
+			<button type="button" id="claim-btn" class="claim" aria-disabled={dollars < 1 ? 'true' : undefined} aria-describedby="claim-hint">
+				{dollars < 1 ? 'Claim' : `Claim $${dollars}`}
+			</button>
+			<p class="hint" id="claim-hint">
+				{dollars < 1 ? `You need ${rate.toLocaleString('en-US')} credits to claim 1 USD. You have ${summary.balance.toLocaleString('en-US')}.` : `Cash out ${(dollars * rate).toLocaleString('en-US')} credits through PayPal.`}
+			</p>
+		</div>
+		<p class="claimed" id="claim-done" role="status"></p>
 	</section>
 
 	<section class="share" aria-labelledby="share-title">
@@ -32,7 +53,44 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 			<li>
 				Each time that friend has opened <strong>{plural(settings.albumsPerCredit, 'different album')}</strong> to look at the photos: <strong>{plural(settings.referralAlbums, 'credit')}</strong> for you.
 			</li>
+			<li>
+				<strong>{plural(rate, 'credit')} = 1 USD</strong>. Claims are paid through PayPal in whole dollars.
+			</li>
 		</ul>
+	</section>
+
+	<section aria-labelledby="claims-title" class="claims">
+		<h2 id="claims-title">Your claims</h2>
+		<p class="none" id="claims-none" hidden={claims.length > 0}>You have not claimed any credits yet.</p>
+		<div class="table-wrap" id="claims-wrap" hidden={claims.length === 0}>
+			<table>
+				<caption class="visually-hidden">Your claims, newest first</caption>
+				<thead>
+					<tr>
+						<th scope="col">Date</th>
+						<th scope="col" class="num">Credits</th>
+						<th scope="col" class="num">Amount</th>
+						<th scope="col">PayPal</th>
+						<th scope="col">Status</th>
+					</tr>
+				</thead>
+				<tbody id="claim-rows">
+					{
+						claims.map((c) => (
+							<tr data-claim-id={c.id}>
+								<td class="when">{when(c.createdAt)}</td>
+								<td class="num">{c.credits.toLocaleString('en-US')}</td>
+								<td class="num">{usd(c.usdCents)}</td>
+								<td class="paypal">{c.paypal}</td>
+								<td>
+									<span class={`badge b-${c.status}`}>{CLAIM_LABELS[c.status]}</span>
+								</td>
+							</tr>
+						))
+					}
+				</tbody>
+			</table>
+		</div>
 	</section>
 
 	<section aria-labelledby="friends-title">
@@ -67,13 +125,28 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 						<li>
 							<span class="date">{when(h.at)}</span>
 							<span class="what">{REASONS[h.reason]}</span>
-							<span class="plus">+{h.amount}</span>
+							<span class={h.amount < 0 ? 'minus' : 'plus'}>{h.amount > 0 ? '+' : ''}{h.amount.toLocaleString('en-US')}</span>
 						</li>
 					))}
 				</ul>
 			)
 		}
 	</section>
+
+	<dialog id="claim-dialog" class="dialog" aria-labelledby="claim-title" aria-describedby="claim-text">
+		<h2 id="claim-title">Claim through PayPal</h2>
+		<p class="dialog-text" id="claim-text"></p>
+		<form id="claim-form" novalidate>
+			<label for="paypal">Your PayPal email address</label>
+			<input id="paypal" name="paypal" type="email" inputmode="email" autocomplete="email" maxlength="254" placeholder="you@example.com" spellcheck="false" aria-describedby="claim-error" />
+			<p class="dialog-note">The money is sent to this address by hand, so check it carefully. It is shown to you and to the administrators only.</p>
+			<p class="dialog-error" id="claim-error" role="alert"></p>
+			<div class="dialog-actions">
+				<button type="button" class="dialog-btn ghost" id="claim-cancel">Cancel</button>
+				<button type="submit" class="dialog-btn primary" id="claim-submit">Submit claim</button>
+			</div>
+		</form>
+	</dialog>
 </AccountLayout>
 
 <script>
@@ -92,6 +165,113 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 		}
 	});
 	field?.addEventListener('focus', () => field.select());
+
+	// ---- Claim: the button is shown from the start but does nothing until the balance is worth at least 1 USD
+	const box = document.querySelector<HTMLElement>('.balance')!;
+	const rate = Number(box.dataset.rate);
+	let balance = Number(box.dataset.balance);
+	const claimButton = document.querySelector<HTMLButtonElement>('#claim-btn')!;
+	const claimHint = document.querySelector<HTMLElement>('#claim-hint')!;
+	const dialog = document.querySelector<HTMLDialogElement>('#claim-dialog')!;
+	const form = document.querySelector<HTMLFormElement>('#claim-form')!;
+	const paypal = document.querySelector<HTMLInputElement>('#paypal')!;
+	const errorLine = document.querySelector<HTMLElement>('#claim-error')!;
+	const submit = document.querySelector<HTMLButtonElement>('#claim-submit')!;
+	const done = document.querySelector<HTMLElement>('#claim-done')!;
+	const number = new Intl.NumberFormat('en-US');
+	const dollars = () => Math.floor(balance / rate);
+
+	const paintBalance = () => {
+		document.querySelector('#balance')!.textContent = number.format(balance);
+		document.querySelector('#worth')!.textContent = `Worth $${(balance / rate).toFixed(2)} (${number.format(rate)} credits = 1 USD)`;
+		const d = dollars();
+		claimButton.textContent = d < 1 ? 'Claim' : `Claim $${d}`;
+		claimButton.toggleAttribute('aria-disabled', d < 1);
+		if (d < 1) claimButton.setAttribute('aria-disabled', 'true');
+		claimHint.textContent = d < 1 ? `You need ${number.format(rate)} credits to claim 1 USD. You have ${number.format(balance)}.` : `Cash out ${number.format(d * rate)} credits through PayPal.`;
+	};
+
+	claimButton.addEventListener('click', () => {
+		if (claimButton.getAttribute('aria-disabled') === 'true') return;
+		const d = dollars();
+		document.querySelector('#claim-text')!.textContent = `You will claim $${d}.00 for ${number.format(d * rate)} credits${balance - d * rate > 0 ? `; the other ${number.format(balance - d * rate)} stay in your balance` : ''}. The credits leave your balance now.`;
+		errorLine.textContent = '';
+		paypal.removeAttribute('aria-invalid');
+		dialog.showModal();
+		paypal.focus();
+	});
+	document.querySelector('#claim-cancel')!.addEventListener('click', () => dialog.close());
+	dialog.addEventListener('click', (e) => {
+		if (e.target === dialog) dialog.close();
+	});
+	paypal.addEventListener('input', () => {
+		errorLine.textContent = '';
+		paypal.removeAttribute('aria-invalid');
+	});
+
+	// Rows are built with text only: the address is typed by a person.
+	const row = (c: { id: number; credits: number; usdCents: number; paypal: string; status: string; createdAt: string }) => {
+		const tr = document.createElement('tr');
+		tr.dataset.claimId = String(c.id);
+		const cell = (text: string, className = '') => {
+			const td = document.createElement('td');
+			td.className = className;
+			td.textContent = text;
+			return td;
+		};
+		const state = document.createElement('td');
+		const badge = document.createElement('span');
+		badge.className = `badge b-${c.status}`;
+		badge.textContent = { processing: 'Processing', paid: 'Paid', rejected: 'Rejected' }[c.status] ?? c.status;
+		state.append(badge);
+		tr.append(
+			cell(new Date(c.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }), 'when'),
+			cell(number.format(c.credits), 'num'),
+			cell(`$${(c.usdCents / 100).toFixed(2)}`, 'num'),
+			cell(c.paypal, 'paypal'),
+			state,
+		);
+		return tr;
+	};
+
+	form.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		const address = paypal.value.trim();
+		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+			errorLine.textContent = 'Enter the email address of your PayPal account.';
+			paypal.setAttribute('aria-invalid', 'true');
+			paypal.focus();
+			return;
+		}
+		submit.disabled = true;
+		try {
+			const response = await fetch('/api/account/claims', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				credentials: 'same-origin',
+				body: JSON.stringify({ paypal: address }),
+			});
+			const data = await response.json().catch(() => null);
+			if (!response.ok) {
+				errorLine.textContent = typeof data?.error === 'string' ? data.error : 'The claim could not be made. Nothing was changed.';
+				if (response.status === 400) paypal.setAttribute('aria-invalid', 'true');
+				return;
+			}
+			balance = data.balance;
+			document.querySelector('#claim-rows')!.replaceChildren(...data.claims.map(row));
+			document.querySelector<HTMLElement>('#claims-wrap')!.hidden = false;
+			document.querySelector<HTMLElement>('#claims-none')!.hidden = true;
+			paintBalance();
+			dialog.close();
+			paypal.value = '';
+			done.textContent = `Claim submitted: $${(data.claim.usdCents / 100).toFixed(2)} (${number.format(data.claim.credits)} credits) is Processing.`;
+			claimButton.focus();
+		} catch {
+			errorLine.textContent = 'The server could not be reached. Nothing was changed.';
+		} finally {
+			submit.disabled = false;
+		}
+	});
 </script>
 
 <style>
@@ -113,6 +293,49 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 		font-size: 36px;
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
+	}
+	.worth {
+		margin: 2px 0 14px;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.claim-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px 14px;
+	}
+	.claim {
+		height: 44px;
+		padding: 0 28px;
+		border: 0;
+		border-radius: 999px;
+		background: var(--text);
+		color: #fff;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	/* Shown from the start, but read-only until the balance is worth at least 1 USD. */
+	.claim[aria-disabled='true'] {
+		background: var(--bg-soft);
+		color: var(--muted);
+		cursor: not-allowed;
+	}
+	.claim:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.hint {
+		margin: 0;
+		font-size: 13px;
+		color: var(--muted);
+	}
+	.claimed {
+		min-height: 1.3em;
+		margin: 10px 0 0;
+		font-size: 13px;
+		color: #1b6b34;
 	}
 	.lead {
 		margin: 0 0 12px;
@@ -174,10 +397,76 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 		font-size: 14px;
 		color: var(--muted);
 	}
+	.none[hidden],
+	.table-wrap[hidden] {
+		display: none;
+	}
 	.privacy {
 		margin-top: 8px;
 		font-size: 12px;
 	}
+
+	/* The claims table: rows are also made by the script, so their cells need :global. */
+	.table-wrap {
+		overflow-x: auto;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 14px;
+	}
+	th,
+	.claims :global(td) {
+		padding: 10px 14px;
+		text-align: left;
+		vertical-align: middle;
+	}
+	thead th {
+		background: #fafafa;
+		border-bottom: 1px solid var(--border);
+		color: var(--muted);
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+	.claims :global(tbody tr + tr > *) {
+		border-top: 1px solid var(--bg-soft);
+	}
+	.claims :global(.num),
+	thead .num {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	.claims :global(.when) {
+		color: var(--muted);
+		white-space: nowrap;
+	}
+	.claims :global(.paypal) {
+		overflow-wrap: anywhere;
+	}
+	.claims :global(.badge) {
+		display: inline-block;
+		padding: 3px 10px;
+		border-radius: 999px;
+		background: #fff4d6;
+		color: #8a5a00;
+		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.claims :global(.b-paid) {
+		background: #e6f4ea;
+		color: #1b6b34;
+	}
+	.claims :global(.b-rejected) {
+		background: #fde8e8;
+		color: #c62828;
+	}
+
 	.friends,
 	.history {
 		margin: 0;
@@ -210,9 +499,138 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 		flex: 1;
 		min-width: 140px;
 	}
-	.plus {
+	.plus,
+	.minus {
 		font-weight: 700;
-		color: #1b6b34;
 		font-variant-numeric: tabular-nums;
+	}
+	.plus {
+		color: #1b6b34;
+	}
+	.minus {
+		color: #c62828;
+	}
+
+	/* The PayPal popup, in the same style as the other dialogs. */
+	.dialog {
+		width: min(440px, calc(100vw - 32px));
+		padding: 28px;
+		border: 0;
+		border-radius: 12px;
+		color: var(--text);
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+		opacity: 0;
+		transform: translateY(16px) scale(0.96);
+		transition:
+			opacity 0.25s ease,
+			transform 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open] {
+		opacity: 1;
+		transform: none;
+	}
+	.dialog::backdrop {
+		background: rgba(0, 0, 0, 0);
+		transition:
+			background 0.25s ease,
+			overlay 0.25s allow-discrete,
+			display 0.25s allow-discrete;
+	}
+	.dialog[open]::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+	}
+	@starting-style {
+		.dialog[open] {
+			opacity: 0;
+			transform: translateY(16px) scale(0.96);
+		}
+		.dialog[open]::backdrop {
+			background: rgba(0, 0, 0, 0);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.dialog,
+		.dialog::backdrop {
+			transition: none;
+		}
+	}
+	.dialog h2 {
+		margin: 0 0 12px;
+		font-size: 20px;
+	}
+	.dialog-text {
+		margin: 0 0 14px;
+		font-size: 15px;
+	}
+	.dialog label {
+		display: block;
+		margin-bottom: 6px;
+		font-size: 14px;
+		font-weight: 500;
+	}
+	.dialog input {
+		width: 100%;
+		height: 46px;
+		padding: 0 14px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		font: inherit;
+	}
+	.dialog input:focus {
+		outline: 0;
+		border-color: var(--text);
+		box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+	}
+	.dialog input[aria-invalid='true'] {
+		border-color: #c62828;
+	}
+	.dialog-note {
+		margin: 8px 0 0;
+		font-size: 12px;
+		color: var(--muted);
+	}
+	.dialog-error {
+		min-height: 1.2em;
+		margin: 6px 0 0;
+		font-size: 13px;
+		color: #c62828;
+	}
+	.dialog-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 12px;
+	}
+	.dialog-btn {
+		height: 44px;
+		padding: 0 24px;
+		border-radius: 999px;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.dialog-btn:focus-visible {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+	}
+	.dialog-btn.primary {
+		border: 0;
+		background: var(--text);
+		color: #fff;
+	}
+	.dialog-btn.primary:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.dialog-btn.ghost {
+		border: 0;
+		background: none;
+		color: var(--muted);
+	}
+	.dialog-btn.ghost:hover {
+		background: var(--bg-soft);
+		color: var(--text);
 	}
 </style>

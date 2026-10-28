@@ -4,13 +4,13 @@ import { CREDIT_LIMITS, creditTotals, getCreditSettings } from '../server/credit
 
 const settings = getCreditSettings();
 const totals = creditTotals();
-const { points, albumsPerCredit } = CREDIT_LIMITS;
+const { points, albumsPerCredit, creditsPerUsd } = CREDIT_LIMITS;
 ---
 
 <section class="credits" aria-labelledby="credits-title" data-limits={JSON.stringify(CREDIT_LIMITS)}>
 	<h2 id="credits-title">Referral credits</h2>
 	<p class="lead">
-		Every user has an invitation link. Set how many credits each event is worth. A change applies to what happens from now on: credits that were already
+		Every user has an invitation link. Set how many credits each event is worth, and what a credit is worth in dollars. A change applies to what happens from now on: credits that were already
 		given are not recalculated.
 	</p>
 
@@ -38,6 +38,17 @@ const { points, albumsPerCredit } = CREDIT_LIMITS;
 			</div>
 		</div>
 
+		<div class="rule">
+			<label for="c-usd">4. Cashing out: credits worth 1 USD</label>
+			<p class="hint" id="c-usd-hint">
+				A user whose balance reaches this many credits can claim 1 USD through PayPal; a claim takes as many whole dollars as the balance allows. A claim keeps the rate it was made at.
+			</p>
+			<div class="pair">
+				<input id="c-usd" name="creditsPerUsd" type="number" inputmode="numeric" min={creditsPerUsd.min} max={creditsPerUsd.max} step="1" value={settings.creditsPerUsd} aria-describedby="c-usd-hint" />
+				<span class="per">credits = 1 USD</span>
+			</div>
+		</div>
+
 		<p class="error" id="credits-error" role="alert"></p>
 		<div class="actions">
 			<button type="submit" class="save" id="credits-save">Save</button>
@@ -55,7 +66,7 @@ const { points, albumsPerCredit } = CREDIT_LIMITS;
 		const saved = document.querySelector<HTMLElement>('#credits-saved')!;
 		const save = document.querySelector<HTMLButtonElement>('#credits-save')!;
 		const totals = document.querySelector<HTMLElement>('#credits-totals')!;
-		const fields = ['signup', 'referralSignup', 'referralAlbums', 'albumsPerCredit'] as const;
+		const fields = ['signup', 'referralSignup', 'referralAlbums', 'albumsPerCredit', 'creditsPerUsd'] as const;
 		const input = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
 
 		// Whole numbers in range only; the server checks again.

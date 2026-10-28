@@ -161,6 +161,40 @@ const MIGRATIONS: string[] = [
 		PRIMARY KEY (user_id, album_id)
 	);
 	`,
+	`
+	-- Cashing out credits. The ledger gets two more reasons (a claim takes credits out, a rejected claim puts them back) and
+	-- a link to the claim; a CHECK cannot be changed in place, so the table is rebuilt with its rows.
+	CREATE TABLE credit_ledger_new (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		amount INTEGER NOT NULL,
+		reason TEXT NOT NULL CHECK (reason IN ('signup', 'referral_signup', 'referral_albums', 'claim', 'claim_refund')),
+		source_user_id TEXT,
+		created_at TEXT NOT NULL,
+		claim_id INTEGER
+	);
+	INSERT INTO credit_ledger_new (id, user_id, amount, reason, source_user_id, created_at) SELECT id, user_id, amount, reason, source_user_id, created_at FROM credit_ledger;
+	DROP TABLE credit_ledger;
+	ALTER TABLE credit_ledger_new RENAME TO credit_ledger;
+	CREATE INDEX credit_ledger_user ON credit_ledger(user_id);
+	-- One row per request to cash out. The name and email are copied, and the user link is cleared if the account is deleted,
+	-- so the record of what is owed or was paid survives. The PayPal address is only ever shown to its owner and to administrators.
+	CREATE TABLE credit_claims (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+		user_name TEXT NOT NULL,
+		user_email TEXT NOT NULL,
+		credits INTEGER NOT NULL,
+		-- the rate (credits per USD) and the amount, fixed when the claim was made
+		rate INTEGER NOT NULL,
+		usd_cents INTEGER NOT NULL,
+		paypal TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'processing' CHECK (status IN ('processing', 'paid', 'rejected')),
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	);
+	CREATE INDEX credit_claims_user ON credit_claims(user_id);
+	`,
 ];
 
 type Db = DatabaseSync;
