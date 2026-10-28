@@ -270,14 +270,16 @@
 		const list = users.filter((u) => (view.status === 'all' || u.status === view.status) && (!q || `${fullName(u)} ${u.email}`.toLowerCase().includes(q)));
 		const dir = view.sortDir === 'asc' ? 1 : -1;
 		// Users added on this page ("new-3") count as the latest of all, so they sort first by date.
-		const order = (id: string) => Number(id.replace(/\D/g, '')) + (id.startsWith('new-') ? 1e9 : 0);
+		// Ids from the server are UUIDs, so the rest are ordered by the id text (any stable order will do).
+		const isNew = (id: string) => id.startsWith('new-');
+		const order = (a: UserRow, b: UserRow) => (isNew(a.id) !== isNew(b.id) ? (isNew(a.id) ? 1 : -1) : isNew(a.id) ? Number(a.id.slice(4)) - Number(b.id.slice(4)) : a.id.localeCompare(b.id));
 		list.sort((a, b) => {
 			const byKey =
 				view.sortKey === 'name'
 					? `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)
 					: toMs(a.registeredAt) - toMs(b.registeredAt);
 			// Ties (many people register on the same day) keep a stable order by id.
-			return byKey !== 0 ? byKey * dir : (order(a.id) - order(b.id)) * dir;
+			return byKey !== 0 ? byKey * dir : order(a, b) * dir;
 		});
 		return list;
 	};
@@ -550,16 +552,15 @@
 		saveButton.disabled = false;
 
 		if (result.ok) {
+			// The server gave each new user its real id: use it from now on, so a later edit refers to the right user.
+			for (const u of users) if (result.ids[u.id]) u.id = result.ids[u.id];
 			// What was just saved becomes the new starting point, and the typed passwords are dropped.
 			initial = users.map((u) => ({ ...u }));
 			resets.clear();
 			commit();
 			return say('Changes saved.');
 		}
-		if (result.reason === 'not-configured') {
-			return say('Not saved: no user service is connected yet. Your changes stay on this page until you leave it.', true);
-		}
-		say('The changes could not be saved. Please try again.', true);
+		say(result.error ?? 'The changes could not be saved. Please try again.', true);
 	});
 
 	render();

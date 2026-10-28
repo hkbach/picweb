@@ -1,6 +1,8 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
-import { categories } from '../../data/categories';
+import { listCategories } from '../../server/repo.ts';
+
+const categories = listCategories();
 
 // Escape "<" so the data can never close the script tag it is embedded in.
 const json = JSON.stringify(categories).replace(/</g, '\\u003c');
@@ -69,7 +71,7 @@ export const prerender = false;
 	const MAX_CATEGORIES = 30;
 	const MAX_NAME = 30;
 
-	const initial: Category[] = JSON.parse(document.querySelector('#category-data')!.textContent ?? '[]');
+	let initial: Category[] = JSON.parse(document.querySelector('#category-data')!.textContent ?? '[]');
 	let items: Category[] = initial.map((c) => ({ ...c }));
 	let nextId = 0;
 
@@ -227,13 +229,12 @@ export const prerender = false;
 		saveButton.disabled = true;
 		say('Saving…');
 		const result = await saveCategories(items.map(({ id, name }) => ({ id, name })));
+		// What was just saved is the new starting point: Discard goes back to it, and the buttons go idle.
+		if (result.ok) initial = items.map((c) => ({ ...c }));
 		render(); // restores the buttons from the dirty state
 
 		if (result.ok) return say('Categories saved.');
-		if (result.reason === 'not-configured') {
-			return say('Not saved: no category service is connected yet. Your edits stay on this page until you leave it.', true);
-		}
-		say('The categories could not be saved. Please try again.', true);
+		say(result.error ?? 'The categories could not be saved. Please try again.', true);
 	});
 
 	render();

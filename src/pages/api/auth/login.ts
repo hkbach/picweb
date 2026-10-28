@@ -47,6 +47,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 		await verifyAgainstDecoy(password);
 		return json({ error: FAILED }, 401);
 	}
+	// An account with no password yet ("!") takes as long to refuse as any other.
+	if (!row.password_hash.startsWith('scrypt$')) {
+		await verifyAgainstDecoy(password);
+		return json({ error: FAILED }, 401);
+	}
 	const correct = await verifyPassword(password, row.password_hash);
 	// A deactivated account is refused with the same message as a wrong password.
 	if (!correct || row.status !== 'active') return json({ error: FAILED }, 401);

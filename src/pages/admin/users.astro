@@ -2,7 +2,11 @@
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import UserSummary from '../../components/UserSummary.astro';
 import UserTable from '../../components/UserTable.astro';
-import { users, snapshotDate } from '../../data/users';
+import { listUsers } from '../../server/repo.ts';
+
+const users = listUsers();
+// Charts count back from today (UTC).
+const snapshotDate = new Date().toISOString().slice(0, 10);
 
 // Escape "<" so the data can never close the script tag it is embedded in.
 const json = JSON.stringify({ snapshot: snapshotDate, users }).replace(/</g, '\\u003c');
@@ -12,10 +16,6 @@ export const prerender = false;
 ---
 
 <AdminLayout title="User management" heading="User management">
-	<p class="intro">
-		Sample data only: no user service is connected yet, so the names below are made up and changes cannot be saved.
-	</p>
-
 	<div class="tabs" role="tablist" aria-label="User management sections" id="user-tabs">
 		<button type="button" class="tab" role="tab" id="tab-summary" aria-controls="panel-summary" aria-selected="true" data-tab="summary">
 			Summary

@@ -11,7 +11,8 @@
     "preview": "astro preview",
     "astro": "astro",
     "crawl": "node crawler/cli.ts",
-    "create-admin": "node scripts/create-admin.ts"
+    "create-admin": "node scripts/create-admin.ts",
+    "seed:demo": "node scripts/seed-demo.ts"
   },
   "dependencies": {
     "@astrojs/node": "^11.1.9",

@@ -1,5 +1,5 @@
-import { photos, type Photo } from './photos';
-import { categories } from './categories';
+import { photos, type Photo } from './photos.ts';
+import { categories } from './categories.ts';
 
 /** How an album was created: from online image links (Crawling) or files from a device (Uploaded). */
 export type AlbumType = 'crawling' | 'uploaded';

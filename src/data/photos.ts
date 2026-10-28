@@ -1,4 +1,4 @@
-import { naturalSizes } from './natural-sizes';
+import { naturalSizes } from './natural-sizes.ts';
 
 export interface Photo {
 	id: number;

@@ -1,4 +1,4 @@
-import { photos } from './photos';
+import { photos } from './photos.ts';
 
 // Placeholder account data. Replace with the signed-in user's real profile and lists (API) when available.
 export const user = {

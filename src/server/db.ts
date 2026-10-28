@@ -32,6 +32,23 @@ const MIGRATIONS: string[] = [
 	);
 	CREATE INDEX sessions_user ON sessions(user_id);
 	`,
+	`
+	-- The list shown in the Homepage navigation bar, in order.
+	CREATE TABLE categories (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		position INTEGER NOT NULL
+	);
+	-- Who changed what, by id only (no names, emails or passwords are copied here).
+	CREATE TABLE audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		at TEXT NOT NULL,
+		actor_id TEXT,
+		action TEXT NOT NULL,
+		target TEXT,
+		detail TEXT
+	);
+	`,
 ];
 
 type Db = DatabaseSync;

@@ -1,12 +1,6 @@
-// User service calls. No backend or database exists yet, so nothing here can really store a change.
-// Replace the body of saveUserChanges with a request to the real service; the Users admin page
-// already handles each result below.
-//
-// What the real service must do, beyond storing the data:
-//  - allow only administrators (the admin pages have no sign-in yet),
-//  - end a user's active sessions when they are deactivated, and refuse their sign-in,
-//  - make sure emails stay unique, and record who changed what (audit log),
-//  - treat names and emails as personal data: restrict access, and do not copy them into logs.
+// User service calls. The server (src/pages/api/admin/users) allows administrators only, ends a user's
+// sessions when they are deactivated, keeps emails unique and records who changed what (audit_log, by id).
+// Still to do: the email telling a user their password was changed (no email service is connected).
 export interface UserInput {
 	id: string;
 	firstName: string;
@@ -20,7 +14,7 @@ export interface UserInput {
  *  - hash it with a slow password hash (Argon2id or bcrypt) and never store or log the plain text,
  *  - end the user's active sessions so the old password stops working everywhere,
  *  - when `mustChangeAtNextSignIn` is true, make the user choose their own password at next sign-in,
- *  - tell the user by email that their password was changed, and record who did it (audit log).
+ *  - (not done yet: no email service) tell the user by email that their password was changed.
  */
 export interface PasswordReset {
 	id: string;
@@ -39,8 +33,23 @@ export interface UserChanges {
 	passwordResets: PasswordReset[];
 }
 
-export type UserSaveResult = { ok: true } | { ok: false; reason: 'not-configured' | 'error' };
+export type UserSaveResult =
+	| { ok: true; /** Temporary id of each new user -> the id the server gave it. */ ids: Record<string, string> }
+	| { ok: false; reason: 'not-configured' | 'error'; error?: string };
 
-export async function saveUserChanges(_changes: UserChanges): Promise<UserSaveResult> {
-	return { ok: false, reason: 'not-configured' };
+// Sent to /api/admin/users (see src/pages/api/admin/users/index.ts), which applies everything as one unit.
+export async function saveUserChanges(changes: UserChanges): Promise<UserSaveResult> {
+	try {
+		const response = await fetch('/api/admin/users', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(changes),
+			credentials: 'same-origin',
+		});
+		const data = await response.json().catch(() => ({}));
+		if (response.ok) return { ok: true, ids: data.ids ?? {} };
+		return { ok: false, reason: 'error', error: typeof data.error === 'string' ? data.error : undefined };
+	} catch {
+		return { ok: false, reason: 'error' };
+	}
 }
