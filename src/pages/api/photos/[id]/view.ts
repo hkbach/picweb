@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { db } from '../../../../server/db.ts';
 import { allow } from '../../../../server/limits.ts';
 import { userFromRequest } from '../../../../server/sessions.ts';
+import { clientIp } from '../../../../server/client-ip.ts';
 import { recordAlbumOpen } from '../../../../server/credits.ts';
 import { json, rejectCrossSite } from '../../../../server/admin-api.ts';
 
@@ -19,7 +20,7 @@ export const POST: APIRoute = async ({ params, request, clientAddress }) => {
 
 	const photoId = Number(params.id);
 	if (!Number.isInteger(photoId)) return json({ error: 'Not found.' }, 404);
-	if (!allow(`view:${clientAddress}`, PER_MINUTE, 60_000)) return json({ error: 'Too many requests.' }, 429);
+	if (!allow(`view:${clientIp(request, clientAddress)}`, PER_MINUTE, 60_000)) return json({ error: 'Too many requests.' }, 429);
 	const photo = db().prepare("SELECT p.album_id FROM photos p JOIN albums a ON a.id = p.album_id WHERE p.id = ? AND a.status = 'active'").get(photoId) as { album_id: number } | undefined;
 	if (!photo) return json({ error: 'Not found.' }, 404);
 

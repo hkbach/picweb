@@ -232,6 +232,23 @@ const MIGRATIONS: string[] = [
 	FROM users u, (SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'credits.albums_per_credit'), 5) AS per) n
 	WHERE u.referred_by IS NOT NULL;
 	`,
+	`
+	-- Website traffic (the admin Traffic page): page views and visits per UTC day and country. No address, no cookie and
+	-- nothing about a person is kept: site_visitors holds only today's salted hashes, to count each visitor once a day,
+	-- and older ones are deleted when the day changes.
+	CREATE TABLE site_traffic (
+		day TEXT NOT NULL,
+		country TEXT NOT NULL,
+		views INTEGER NOT NULL DEFAULT 0,
+		visitors INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (day, country)
+	);
+	CREATE TABLE site_visitors (
+		day TEXT NOT NULL,
+		visitor TEXT NOT NULL,
+		PRIMARY KEY (day, visitor)
+	);
+	`,
 ];
 
 type Db = DatabaseSync;

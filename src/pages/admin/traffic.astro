@@ -1,0 +1,24 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import TrafficSummary from '../../components/TrafficSummary.astro';
+
+// Rendered on demand so the middleware can require an administrator before anything is sent.
+export const prerender = false;
+---
+
+<AdminLayout title="Traffic" heading="Traffic">
+	<p class="intro">
+		How many pages of the site were opened (page views) and by how many people (visits: one person counts once a day), per day and per
+		country. Admin pages are not counted. No cookie is used and no address is kept: only daily totals.
+	</p>
+	<TrafficSummary />
+</AdminLayout>
+
+<style>
+	.intro {
+		max-width: 760px;
+		margin: -8px 0 18px;
+		font-size: 14px;
+		color: var(--muted);
+	}
+</style>

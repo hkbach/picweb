@@ -5,6 +5,7 @@ import { findInviter, newReferralCode, registerCredits } from '../../../server/c
 import { hashPassword, passwordProblem } from '../../../server/passwords.ts';
 import { createSession, sessionCookie } from '../../../server/sessions.ts';
 import { allow } from '../../../server/limits.ts';
+import { clientIp } from '../../../server/client-ip.ts';
 import { cleanEmail, cleanName, readJson } from '../../../server/validate.ts';
 import { json, rejectCrossSite } from '../../../server/admin-api.ts';
 import { toPublic } from '../../../server/accounts.ts';
@@ -14,7 +15,7 @@ export const prerender = false;
 export const POST: APIRoute = async ({ request, clientAddress }) => {
 	const crossSite = rejectCrossSite(request);
 	if (crossSite) return crossSite;
-	if (!allow(`register:${clientAddress}`, 10, 60 * 60 * 1000)) return json({ error: 'Too many sign-ups from this address. Try again later.' }, 429);
+	if (!allow(`register:${clientIp(request, clientAddress)}`, 10, 60 * 60 * 1000)) return json({ error: 'Too many sign-ups from this address. Try again later.' }, 429);
 
 	const body = await readJson(request);
 	if (!body) return json({ error: 'Invalid request.' }, 400);

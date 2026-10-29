@@ -1,0 +1,797 @@
+<section class="traffic viz" aria-label="Website traffic">
+	<div class="filters" role="group" aria-label="Date range">
+		<button type="button" class="range" data-days="30" aria-pressed="true">1 month</button>
+		<button type="button" class="range" data-days="90" aria-pressed="false">3 months</button>
+		<button type="button" class="range" data-days="180" aria-pressed="false">6 months</button>
+		<button type="button" class="range" data-days="365" aria-pressed="false">1 year</button>
+	</div>
+
+	<p class="load-status" data-status role="status">Loading…</p>
+
+	<div data-body hidden>
+		<ul class="kpis">
+			<li class="kpi">
+				<p class="kpi-label" data-kpi-label="views">Page views</p>
+				<p class="kpi-value" data-kpi="views"></p>
+				<p class="kpi-note" data-kpi-note="views"></p>
+			</li>
+			<li class="kpi">
+				<p class="kpi-label" data-kpi-label="visits">Visits</p>
+				<p class="kpi-value" data-kpi="visits"></p>
+				<p class="kpi-note" data-kpi-note="visits"></p>
+			</li>
+			<li class="kpi">
+				<p class="kpi-label">Today (UTC)</p>
+				<p class="kpi-value" data-kpi="today"></p>
+				<p class="kpi-note" data-kpi-note="today"></p>
+			</li>
+			<li class="kpi">
+				<p class="kpi-label">Countries</p>
+				<p class="kpi-value" data-kpi="countries"></p>
+				<p class="kpi-note" data-kpi-note="countries"></p>
+			</li>
+		</ul>
+
+		<figure class="card">
+			<figcaption>
+				<h2>Traffic per day</h2>
+				<p class="sub" data-range-text></p>
+			</figcaption>
+			<ul class="legend" aria-label="Legend">
+				<li><span class="swatch s1" aria-hidden="true"></span>Page views</li>
+				<li><span class="swatch s2" aria-hidden="true"></span>Visits</li>
+			</ul>
+
+			<div class="chart" data-chart tabindex="0" role="group" aria-roledescription="line chart" aria-label="Page views and visits per day. Use the left and right arrow keys to move between days.">
+				<div class="tooltip" data-tooltip hidden></div>
+			</div>
+			<p class="visually-hidden" aria-live="polite" data-readout></p>
+
+			<p class="insight" data-insight></p>
+
+			<button type="button" class="link" data-table-toggle aria-expanded="false" aria-controls="traffic-table">View as table</button>
+			<div class="table-wrap" id="traffic-table" data-table-wrap hidden>
+				<table>
+					<caption class="visually-hidden">Page views and visits per day, newest first</caption>
+					<thead>
+						<tr>
+							<th scope="col">Date</th>
+							<th scope="col" class="num">Page views</th>
+							<th scope="col" class="num">Visits</th>
+						</tr>
+					</thead>
+					<tbody data-table-body></tbody>
+				</table>
+				<div data-table-pager></div>
+			</div>
+		</figure>
+
+		<section class="card countries" aria-labelledby="countries-title">
+			<h2 id="countries-title">Visits by country</h2>
+			<p class="sub" data-country-text></p>
+			<p class="none" data-country-none hidden>No visits in this period.</p>
+			<div class="table-wrap plain" data-country-wrap>
+				<table>
+					<caption class="visually-hidden">Visits and page views per country, most visits first</caption>
+					<thead>
+						<tr>
+							<th scope="col">Country</th>
+							<th scope="col" class="num">Visits</th>
+							<th scope="col" class="share-col">Share of visits</th>
+							<th scope="col" class="num">Page views</th>
+						</tr>
+					</thead>
+					<tbody data-country-body></tbody>
+				</table>
+			</div>
+			<div data-country-pager></div>
+			<p class="geo-note" data-geo-note></p>
+		</section>
+	</div>
+</section>
+
+<script>
+	import { createPager } from '../scripts/pager';
+
+	interface Report {
+		days: number;
+		from: string;
+		to: string;
+		series: Array<{ day: string; views: number; visits: number }>;
+		totals: { views: number; visits: number };
+		previous: { views: number; visits: number; covered: boolean };
+		today: { views: number; visits: number };
+		countries: Array<{ code: string; views: number; visits: number }>;
+		geo: 'header' | 'database' | 'none';
+	}
+
+	const RANGE_NAMES: Record<number, string> = { 30: '1 month', 90: '3 months', 180: '6 months', 365: '1 year' };
+	const root = document.querySelector<HTMLElement>('.traffic')!;
+	const $ = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
+	const chartEl = $('[data-chart]');
+	const tooltip = $('[data-tooltip]');
+	const readout = $('[data-readout]');
+	const status = $('[data-status]');
+	const body = $('[data-body]');
+	const tableWrap = $('[data-table-wrap]');
+	const tableToggle = $<HTMLButtonElement>('[data-table-toggle]');
+	const rangeButtons = Array.from(root.querySelectorAll<HTMLButtonElement>('.range'));
+
+	const dayFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+	const fullFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+	const monthFmt = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' });
+	const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+	const num = (n: number) => n.toLocaleString('en-US');
+	const msOf = (day: string) => Date.parse(`${day}T00:00:00Z`);
+	const countryName = (code: string) => {
+		if (code === 'ZZ') return 'Unknown';
+		try {
+			return regionNames.of(code) ?? code;
+		} catch {
+			return code;
+		}
+	};
+	const SVG = 'http://www.w3.org/2000/svg';
+
+	let days = 30;
+	let report: Report | null = null;
+	let activeIndex: number | null = null;
+	let layout = { w: 0, h: 0, l: 44, r: 16, t: 16, b: 30, yMax: 1 };
+	let run = 0;
+
+	const setText = (selector: string, text: string) => {
+		$(selector).textContent = text;
+	};
+
+	// "▲ 12% vs previous 30 days", with the direction in words and an arrow as well as colour.
+	const change = (selector: string, now: number, before: number) => {
+		const note = $(selector);
+		note.className = 'kpi-note';
+		if (!report!.previous.covered) note.textContent = `Not enough history to compare with the previous ${days} days`;
+		else if (before === 0) note.textContent = now === 0 ? `None in the previous ${days} days either` : `None in the previous ${days} days`;
+		else {
+			const pct = Math.round(((now - before) / before) * 100);
+			note.textContent = pct === 0 ? `No change vs previous ${days} days` : `${pct > 0 ? '▲' : '▼'} ${Math.abs(pct)}% vs previous ${days} days`;
+			if (pct > 0) note.classList.add('up');
+			if (pct < 0) note.classList.add('down');
+		}
+	};
+
+	const renderKpis = () => {
+		const r = report!;
+		setText('[data-kpi-label="views"]', `Page views, last ${days} days`);
+		setText('[data-kpi="views"]', num(r.totals.views));
+		change('[data-kpi-note="views"]', r.totals.views, r.previous.views);
+		setText('[data-kpi-label="visits"]', `Visits, last ${days} days`);
+		setText('[data-kpi="visits"]', num(r.totals.visits));
+		change('[data-kpi-note="visits"]', r.totals.visits, r.previous.visits);
+		setText('[data-kpi="today"]', num(r.today.views));
+		setText('[data-kpi-note="today"]', `page views · ${num(r.today.visits)} ${r.today.visits === 1 ? 'visit' : 'visits'}`);
+		const known = r.countries.filter((c) => c.code !== 'ZZ');
+		setText('[data-kpi="countries"]', num(known.length));
+		setText('[data-kpi-note="countries"]', known.length === 0 ? 'No country known yet' : `Most visits: ${countryName(known[0].code)}`);
+	};
+
+	// ---- chart (same construction as the User management summary, with two series)
+	const el = (name: string, attrs: Record<string, string | number> = {}, className?: string) => {
+		const node = document.createElementNS(SVG, name);
+		for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+		if (className) node.setAttribute('class', className);
+		return node;
+	};
+	const niceScale = (max: number) => {
+		const target = Math.max(max, 1) / 4;
+		const magnitude = 10 ** Math.floor(Math.log10(target));
+		const step = ([1, 2, 5, 10].find((m) => m * magnitude >= target) ?? 10) * magnitude;
+		return { step, top: Math.max(Math.ceil(max / step) * step, step) };
+	};
+	const points = () => report?.series ?? [];
+	const xTicks = (width: number) => {
+		const list = points();
+		const n = list.length;
+		const picks: number[] = [];
+		if (days <= 90) {
+			const every = days <= 30 ? 5 : 14;
+			for (let i = n - 1; i >= 0; i -= every) picks.push(i);
+		} else list.forEach((p, i) => new Date(msOf(p.day)).getUTCDate() === 1 && picks.push(i));
+		const xOf = (i: number) => layout.l + (i / Math.max(n - 1, 1)) * width;
+		const kept: number[] = [];
+		for (const i of picks.sort((a, b) => a - b)) if (kept.length === 0 || xOf(i) - xOf(kept[kept.length - 1]) >= 56) kept.push(i);
+		return kept;
+	};
+
+	const showPoint = (i: number) => {
+		const list = points();
+		if (list.length === 0) return;
+		activeIndex = i;
+		const svg = chartEl.querySelector('svg');
+		if (!svg) return;
+		const innerW = layout.w - layout.l - layout.r;
+		const innerH = layout.h - layout.t - layout.b;
+		const x = layout.l + (i / Math.max(list.length - 1, 1)) * innerW;
+		const y = (v: number) => layout.t + innerH - (v / layout.yMax) * innerH;
+		const guide = svg.querySelector('.guide')!;
+		guide.setAttribute('x1', String(x));
+		guide.setAttribute('x2', String(x));
+		guide.removeAttribute('hidden');
+		for (const [selector, value] of [['.hover-dot.d1', list[i].views], ['.hover-dot.d2', list[i].visits]] as const) {
+			const dot = svg.querySelector(selector)!;
+			dot.setAttribute('cx', String(x));
+			dot.setAttribute('cy', String(y(value)));
+			dot.removeAttribute('hidden');
+		}
+		tooltip.replaceChildren();
+		const date = document.createElement('div');
+		date.className = 'tt-date';
+		date.textContent = fullFmt.format(new Date(msOf(list[i].day)));
+		tooltip.append(date);
+		for (const [key, value, label] of [['s1', list[i].views, list[i].views === 1 ? 'page view' : 'page views'], ['s2', list[i].visits, list[i].visits === 1 ? 'visit' : 'visits']] as const) {
+			const row = document.createElement('div');
+			row.className = 'tt-row';
+			const swatch = document.createElement('span');
+			swatch.className = `tt-key ${key}`;
+			const strong = document.createElement('strong');
+			strong.textContent = num(value);
+			const text = document.createElement('span');
+			text.className = 'tt-label';
+			text.textContent = label;
+			row.append(swatch, strong, text);
+			tooltip.append(row);
+		}
+		tooltip.hidden = false;
+		const tw = tooltip.offsetWidth;
+		const left = x > layout.w * 0.6 ? x - tw - 12 : x + 12;
+		tooltip.style.left = `${Math.max(0, Math.min(left, layout.w - tw))}px`;
+		tooltip.style.top = `${layout.t}px`;
+		readout.textContent = `${fullFmt.format(new Date(msOf(list[i].day)))}: ${num(list[i].views)} page views, ${num(list[i].visits)} visits`;
+	};
+	const hidePoint = () => {
+		activeIndex = null;
+		tooltip.hidden = true;
+		chartEl.querySelectorAll('.guide, .hover-dot').forEach((node) => node.setAttribute('hidden', ''));
+	};
+
+	const renderChart = () => {
+		const list = points();
+		const width = chartEl.clientWidth;
+		if (width === 0 || list.length === 0) return;
+		const height = width < 520 ? 240 : 300;
+		const innerW = width - layout.l - layout.r;
+		const innerH = height - layout.t - layout.b;
+		const { step, top } = niceScale(Math.max(...list.map((p) => Math.max(p.views, p.visits))));
+		layout = { ...layout, w: width, h: height, yMax: top };
+		const x = (i: number) => layout.l + (i / Math.max(list.length - 1, 1)) * innerW;
+		const y = (v: number) => layout.t + innerH - (v / top) * innerH;
+		const svg = el('svg', { width, height, viewBox: `0 0 ${width} ${height}`, 'aria-hidden': 'true' });
+		for (let v = 0; v <= top; v += step) {
+			svg.append(el('line', { x1: layout.l, x2: width - layout.r, y1: y(v), y2: y(v) }, v === 0 ? 'axis' : 'grid'));
+			const text = el('text', { x: layout.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, 'tick');
+			text.textContent = num(v);
+			svg.append(text);
+		}
+		for (const i of xTicks(innerW)) {
+			const text = el('text', { x: x(i), y: height - 8, 'text-anchor': 'middle' }, 'tick');
+			text.textContent = days > 90 ? monthFmt.format(new Date(msOf(list[i].day))) : dayFmt.format(new Date(msOf(list[i].day)));
+			svg.append(text);
+		}
+		const path = (key: 'views' | 'visits') => list.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p[key]).toFixed(1)}`).join(' ');
+		const views = path('views');
+		svg.append(el('path', { d: `${views} L${x(list.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z` }, 'area'));
+		svg.append(el('path', { d: views }, 'line l1'), el('path', { d: path('visits') }, 'line l2'));
+		const last = list.length - 1;
+		svg.append(el('circle', { cx: x(last), cy: y(list[last].views), r: 4 }, 'end-dot d1'), el('circle', { cx: x(last), cy: y(list[last].visits), r: 4 }, 'end-dot d2'));
+		svg.append(el('line', { x1: 0, x2: 0, y1: layout.t, y2: layout.t + innerH, hidden: '' }, 'guide'));
+		svg.append(el('circle', { cx: 0, cy: 0, r: 4, hidden: '' }, 'hover-dot d1'), el('circle', { cx: 0, cy: 0, r: 4, hidden: '' }, 'hover-dot d2'));
+		const overlay = el('rect', { x: layout.l, y: layout.t, width: innerW, height: innerH, fill: 'transparent' });
+		const indexAt = (event: PointerEvent) => {
+			const box = svg.getBoundingClientRect();
+			return Math.max(0, Math.min(list.length - 1, Math.round(((event.clientX - box.left - layout.l) / innerW) * (list.length - 1))));
+		};
+		overlay.addEventListener('pointermove', (e) => showPoint(indexAt(e as PointerEvent)));
+		overlay.addEventListener('pointerdown', (e) => showPoint(indexAt(e as PointerEvent)));
+		overlay.addEventListener('pointerleave', () => {
+			if (document.activeElement !== chartEl) hidePoint();
+		});
+		svg.append(overlay);
+		chartEl.querySelector('svg')?.remove();
+		chartEl.prepend(svg);
+		if (activeIndex !== null) showPoint(Math.min(activeIndex, last));
+	};
+
+	// ---- the day table and the country table, both paginated
+	const cell = (tag: 'td' | 'th', text: string, className = '') => {
+		const node = document.createElement(tag);
+		node.textContent = text;
+		if (className) node.className = className;
+		if (tag === 'th') (node as HTMLTableCellElement).scope = 'row';
+		return node;
+	};
+	const tablePager = createPager($('[data-table-pager]'), () => renderTable(), 'Traffic per day');
+	const renderTable = () => {
+		const list = [...points()].reverse();
+		tablePager.setTotal(list.length);
+		$('[data-table-body]').replaceChildren(
+			...tablePager.slice(list).map((p) => {
+				const tr = document.createElement('tr');
+				tr.append(cell('th', fullFmt.format(new Date(msOf(p.day)))), cell('td', num(p.views), 'num'), cell('td', num(p.visits), 'num'));
+				return tr;
+			}),
+		);
+	};
+
+	const countryPager = createPager($('[data-country-pager]'), () => renderCountries(), 'Visits by country');
+	const renderCountries = () => {
+		const list = report!.countries;
+		const totalVisits = list.reduce((s, c) => s + c.visits, 0);
+		countryPager.setTotal(list.length);
+		$('[data-country-none]').hidden = list.length > 0;
+		$('[data-country-wrap]').hidden = list.length === 0;
+		$('[data-country-body]').replaceChildren(
+			...countryPager.slice(list).map((c) => {
+				const tr = document.createElement('tr');
+				tr.dataset.country = c.code;
+				const share = totalVisits === 0 ? 0 : (c.visits / totalVisits) * 100;
+				const shareCell = document.createElement('td');
+				shareCell.className = 'share-col';
+				const bar = document.createElement('span');
+				bar.className = 'bar';
+				bar.setAttribute('aria-hidden', 'true');
+				const fill = document.createElement('span');
+				fill.className = 'bar-fill';
+				fill.style.width = `${share}%`;
+				bar.append(fill);
+				const pct = document.createElement('span');
+				pct.className = 'pct';
+				pct.textContent = `${share < 1 && share > 0 ? '<1' : Math.round(share)}%`;
+				shareCell.append(bar, pct);
+				tr.append(cell('th', countryName(c.code), c.code === 'ZZ' ? 'unknown' : ''), cell('td', num(c.visits), 'num'), shareCell, cell('td', num(c.views), 'num'));
+				return tr;
+			}),
+		);
+		setText('[data-country-text]', `Last ${days} days · ${num(list.filter((c) => c.code !== 'ZZ').length)} countries`);
+		const notes = {
+			header: 'Countries come from the proxy in front of the site (GEOIP_HEADER).',
+			database: 'IP geolocation by DB-IP (db-ip.com), or the country database set in GEOIP_DB.',
+			none: 'Countries are not known yet: set GEOIP_DB (a country database file) or GEOIP_HEADER (behind Cloudflare) on the server. See the README.',
+		} as const;
+		setText('[data-geo-note]', notes[report!.geo]);
+	};
+
+	const render = () => {
+		const r = report!;
+		const list = r.series;
+		const peak = list.reduce((best, p) => (p.views > best.views ? p : best), list[0]);
+		setText('[data-range-text]', `Last ${days} days (${RANGE_NAMES[days]}) · ${dayFmt.format(new Date(msOf(r.from)))} to ${fullFmt.format(new Date(msOf(r.to)))}`);
+		setText('[data-insight]', r.totals.views === 0 ? 'No visits in this period.' : `${num(r.totals.views)} page views and ${num(r.totals.visits)} visits · ${(r.totals.visits / days).toFixed(1)} visits per day on average · busiest day ${dayFmt.format(new Date(msOf(peak.day)))} with ${num(peak.views)} page views`);
+		renderKpis();
+		body.hidden = false;
+		renderChart();
+		if (!tableWrap.hidden) renderTable();
+		renderCountries();
+	};
+
+	const load = async () => {
+		const mine = ++run;
+		status.hidden = false;
+		status.classList.remove('is-error');
+		status.textContent = 'Loading…';
+		let data: Report | null = null;
+		let failed = 'The figures could not be loaded.';
+		try {
+			const response = await fetch(`/api/admin/traffic?days=${days}`, { credentials: 'same-origin', cache: 'no-store' });
+			const json = await response.json().catch(() => null);
+			if (response.ok) data = json as Report;
+			else if (typeof json?.error === 'string') failed = json.error;
+		} catch {
+			failed = 'The server could not be reached.';
+		}
+		if (mine !== run) return; // a later range was chosen meanwhile
+		if (!data) {
+			status.textContent = failed;
+			status.classList.add('is-error');
+			return;
+		}
+		report = data;
+		status.hidden = true;
+		render();
+	};
+
+	rangeButtons.forEach((button) =>
+		button.addEventListener('click', () => {
+			days = Number(button.dataset.days);
+			rangeButtons.forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+			activeIndex = null;
+			hidePoint();
+			tablePager.goTo(1);
+			countryPager.goTo(1);
+			load();
+		}),
+	);
+	tableToggle.addEventListener('click', () => {
+		const open = tableWrap.hidden;
+		tableWrap.hidden = !open;
+		tableToggle.setAttribute('aria-expanded', String(open));
+		tableToggle.textContent = open ? 'Hide table' : 'View as table';
+		if (open) renderTable();
+	});
+	chartEl.addEventListener('focus', () => showPoint(activeIndex ?? points().length - 1));
+	chartEl.addEventListener('blur', hidePoint);
+	chartEl.addEventListener('keydown', (e) => {
+		const list = points();
+		const i = activeIndex ?? list.length - 1;
+		const next = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: list.length - 1 }[e.key];
+		if (next === undefined) return;
+		e.preventDefault();
+		showPoint(Math.max(0, Math.min(list.length - 1, next)));
+	});
+	new ResizeObserver(() => renderChart()).observe(chartEl);
+	load();
+</script>
+
+<style>
+	/* Chart colours as roles (validated pair: blue and orange are told apart with every kind of colour blindness). */
+	.viz {
+		--surface-1: #ffffff;
+		--text-primary: #0b0b0b;
+		--text-secondary: #52514e;
+		--text-muted: #898781;
+		--grid: #e1e0d9;
+		--axis: #c3c2b7;
+		--series-1: #2a78d6;
+		--series-2: #eb6834;
+		--good-text: #006300;
+		--critical: #d03b3b;
+	}
+	.filters {
+		display: inline-flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		margin-bottom: 20px;
+		padding: 4px;
+		border-radius: 999px;
+		background: var(--bg-soft);
+	}
+	.range {
+		height: 34px;
+		padding: 0 16px;
+		border: 0;
+		border-radius: 999px;
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s;
+	}
+	.range:hover:not([aria-pressed='true']) {
+		background: rgba(11, 11, 11, 0.06);
+		color: var(--text-primary);
+	}
+	.range[aria-pressed='true'] {
+		background: var(--text-primary);
+		color: #fff;
+	}
+	.range:focus-visible {
+		outline: 2px solid var(--text-primary);
+		outline-offset: 2px;
+	}
+	.load-status {
+		margin: 0 0 16px;
+		font-size: 14px;
+		color: var(--text-secondary);
+	}
+	.load-status[hidden],
+	[data-body][hidden] {
+		display: none;
+	}
+	.load-status.is-error {
+		color: var(--critical);
+	}
+
+	.kpis {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+		gap: 12px;
+		margin: 0 0 20px;
+		padding: 0;
+		list-style: none;
+	}
+	.kpi {
+		padding: 16px 18px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+	}
+	.kpi-label {
+		margin: 0 0 6px;
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+	.kpi-value {
+		margin: 0;
+		font-size: 30px;
+		font-weight: 600;
+		line-height: 1.1;
+		color: var(--text-primary);
+	}
+	.kpi-note {
+		min-height: 1.3em;
+		margin: 6px 0 0;
+		font-size: 12px;
+		color: var(--text-secondary);
+	}
+	.kpi-note.up {
+		color: var(--good-text);
+	}
+	.kpi-note.down {
+		color: var(--critical);
+	}
+
+	.card {
+		margin: 0 0 20px;
+		padding: 18px 20px 16px;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		background: var(--surface-1);
+	}
+	h2 {
+		margin: 0;
+		font-size: 17px;
+		color: var(--text-primary);
+	}
+	.sub {
+		margin: 4px 0 10px;
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+	.legend {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px 18px;
+		margin: 0 0 8px;
+		padding: 0;
+		list-style: none;
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+	.legend li {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.swatch {
+		width: 14px;
+		height: 3px;
+		border-radius: 2px;
+	}
+	.s1 {
+		background: var(--series-1);
+	}
+	.s2 {
+		background: var(--series-2);
+	}
+
+	.chart {
+		position: relative;
+		min-height: 240px;
+		border-radius: 8px;
+	}
+	.chart:focus-visible {
+		outline: 2px solid var(--text-primary);
+		outline-offset: 4px;
+	}
+	.chart :global(svg) {
+		display: block;
+		overflow: visible;
+		touch-action: pan-y;
+	}
+	.chart :global(.grid) {
+		stroke: var(--grid);
+		stroke-width: 1;
+	}
+	.chart :global(.axis) {
+		stroke: var(--axis);
+		stroke-width: 1;
+	}
+	.chart :global(.tick) {
+		fill: var(--text-muted);
+		font-size: 11px;
+	}
+	.chart :global(.area) {
+		fill: var(--series-1);
+		fill-opacity: 0.08;
+	}
+	.chart :global(.line) {
+		fill: none;
+		stroke-width: 2;
+		stroke-linejoin: round;
+		stroke-linecap: round;
+	}
+	.chart :global(.l1) {
+		stroke: var(--series-1);
+	}
+	.chart :global(.l2) {
+		stroke: var(--series-2);
+	}
+	.chart :global(.end-dot),
+	.chart :global(.hover-dot) {
+		stroke: var(--surface-1);
+		stroke-width: 2;
+	}
+	.chart :global(.d1) {
+		fill: var(--series-1);
+	}
+	.chart :global(.d2) {
+		fill: var(--series-2);
+	}
+	.chart :global(.guide) {
+		stroke: var(--text-muted);
+		stroke-width: 1;
+	}
+	.chart :global([hidden]) {
+		display: none;
+	}
+	.tooltip {
+		position: absolute;
+		z-index: 2;
+		min-width: 140px;
+		padding: 8px 12px;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--surface-1);
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+		pointer-events: none;
+		font-size: 12px;
+	}
+	.tooltip[hidden] {
+		display: none;
+	}
+	.tooltip :global(.tt-date) {
+		margin-bottom: 4px;
+		color: var(--text-secondary);
+	}
+	.tooltip :global(.tt-row) {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.tooltip :global(.tt-key) {
+		width: 14px;
+		height: 3px;
+		border-radius: 2px;
+	}
+	.tooltip :global(.tt-key.s1) {
+		background: var(--series-1);
+	}
+	.tooltip :global(.tt-key.s2) {
+		background: var(--series-2);
+	}
+	.tooltip :global(strong) {
+		font-size: 15px;
+		color: var(--text-primary);
+	}
+	.tooltip :global(.tt-label) {
+		color: var(--text-secondary);
+	}
+	.insight {
+		margin: 12px 0 8px;
+		font-size: 13px;
+		color: var(--text-secondary);
+	}
+	.link {
+		padding: 6px 0;
+		border: 0;
+		background: none;
+		color: var(--text-primary);
+		font: inherit;
+		font-size: 13px;
+		font-weight: 600;
+		text-decoration: underline;
+		text-underline-offset: 3px;
+		cursor: pointer;
+	}
+	.link:focus-visible {
+		outline: 2px solid var(--text-primary);
+		outline-offset: 2px;
+		border-radius: 4px;
+	}
+	.table-wrap {
+		margin-top: 8px;
+		overflow: auto;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+	}
+	.table-wrap[hidden],
+	.none[hidden] {
+		display: none;
+	}
+	table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 13px;
+	}
+	table :global(th),
+	table :global(td) {
+		padding: 8px 14px;
+		text-align: left;
+		vertical-align: middle;
+	}
+	thead th {
+		background: #fafafa;
+		border-bottom: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-size: 12px;
+		white-space: nowrap;
+	}
+	tbody :global(tr + tr > *) {
+		border-top: 1px solid var(--bg-soft);
+	}
+	tbody :global(th) {
+		font-weight: 400;
+		color: var(--text-primary);
+	}
+	tbody :global(th.unknown) {
+		color: var(--text-secondary);
+		font-style: italic;
+	}
+	table :global(.num) {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	.share-col,
+	table :global(.share-col) {
+		width: 38%;
+	}
+	table :global(.bar) {
+		display: inline-block;
+		width: calc(100% - 48px);
+		height: 8px;
+		margin-right: 8px;
+		overflow: hidden;
+		border-radius: 4px;
+		background: var(--bg-soft);
+		vertical-align: middle;
+	}
+	table :global(.bar-fill) {
+		display: block;
+		height: 100%;
+		border-radius: 4px;
+		background: var(--series-1);
+	}
+	table :global(.pct) {
+		display: inline-block;
+		min-width: 36px;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-secondary);
+	}
+	.none {
+		margin: 4px 0 0;
+		font-size: 14px;
+		color: var(--text-secondary);
+	}
+	.geo-note {
+		margin: 10px 0 0;
+		font-size: 12px;
+		color: var(--text-muted);
+	}
+
+	@media (max-width: 520px) {
+		.card {
+			padding: 14px 12px;
+		}
+		.kpi-value {
+			font-size: 26px;
+		}
+		.range {
+			padding: 0 12px;
+		}
+		table :global(th),
+		table :global(td) {
+			padding: 8px 8px;
+		}
+		.share-col,
+		table :global(.share-col) {
+			width: 30%;
+		}
+	}
+</style>

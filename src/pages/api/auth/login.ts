@@ -3,6 +3,7 @@ import { db } from '../../../server/db.ts';
 import { verifyAgainstDecoy, verifyPassword } from '../../../server/passwords.ts';
 import { createSession, sessionCookie } from '../../../server/sessions.ts';
 import { allow, forget } from '../../../server/limits.ts';
+import { clientIp } from '../../../server/client-ip.ts';
 import { cleanEmail, readJson } from '../../../server/validate.ts';
 import { json, rejectCrossSite } from '../../../server/admin-api.ts';
 import { toPublic } from '../../../server/accounts.ts';
@@ -36,7 +37,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 	if (!email || !password || password.length > 128) return json({ error: FAILED }, 401);
 
 	// Two counters: many tries from one address, and many tries against one account from anywhere.
-	if (!allow(`login-ip:${clientAddress}`, 30, WINDOW) || !allow(`login-email:${email}`, 8, WINDOW)) {
+	if (!allow(`login-ip:${clientIp(request, clientAddress)}`, 30, WINDOW) || !allow(`login-email:${email}`, 8, WINDOW)) {
 		return json({ error: 'Too many attempts. Try again in a few minutes.' }, 429);
 	}
 

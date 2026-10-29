@@ -19,6 +19,7 @@
     "@astrojs/node": "^11.1.9",
     "@aws-sdk/client-s3": "^3.1158.0",
     "astro": "^7.4.2",
+    "mmdb-lib": "^3.0.3",
     "playwright": "^1.64.1"
   },
   "devDependencies": {
