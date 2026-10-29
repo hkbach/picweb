@@ -129,12 +129,62 @@
 	</div>
 </dialog>
 
+<dialog id="detail-dialog" class="dialog detail" aria-labelledby="detail-title">
+	<div class="detail-head">
+		<div class="detail-who">
+			<h2 id="detail-title"></h2>
+			<p class="detail-sub" id="detail-sub"></p>
+		</div>
+		<button type="button" class="btn ghost" id="detail-close">Close</button>
+	</div>
+	<p class="detail-status" id="detail-status" role="status"></p>
+	<div id="detail-body" hidden>
+		<dl class="facts" id="detail-facts"></dl>
+
+		<h3 id="friends-title">Accounts registered through this user's link</h3>
+		<p class="detail-none" id="detail-friends-none" hidden>No one has registered through this user's link.</p>
+		<div class="table-wrap" id="detail-friends-wrap">
+			<table>
+				<caption class="visually-hidden">Accounts registered through this user's referral link, newest first</caption>
+				<thead>
+					<tr>
+						<th scope="col">Account</th>
+						<th scope="col">Joined</th>
+						<th scope="col" class="num">Albums opened</th>
+						<th scope="col" class="num">Credits earned</th>
+					</tr>
+				</thead>
+				<tbody id="detail-friends-rows"></tbody>
+			</table>
+		</div>
+		<div id="detail-friends-pager"></div>
+
+		<h3 id="history-title">Credit history</h3>
+		<p class="detail-none" id="detail-history-none" hidden>This user has no credit history yet.</p>
+		<div class="table-wrap" id="detail-history-wrap">
+			<table>
+				<caption class="visually-hidden">The user's credit history, newest first</caption>
+				<thead>
+					<tr>
+						<th scope="col">Date</th>
+						<th scope="col">What happened</th>
+						<th scope="col" class="num">Credits</th>
+					</tr>
+				</thead>
+				<tbody id="detail-history-rows"></tbody>
+			</table>
+		</div>
+		<div id="detail-history-pager"></div>
+		<p class="detail-note" id="detail-truncated" hidden>Only the latest 1,000 entries of each list are shown.</p>
+	</div>
+</dialog>
+
 <template id="user-row">
 	<tr>
 		<td class="user-cell">
 			<span class="avatar" aria-hidden="true"></span>
 			<span class="who">
-				<span class="name"></span>
+				<button type="button" class="name open-detail" title="Show referrals and credit history"></button>
 				<span class="email"></span>
 				<span class="pending" hidden>Password change pending</span>
 				<!-- Phones drop the Status column and show the status here instead. -->
@@ -173,7 +223,7 @@
 
 <script>
 	import { saveUserChanges } from '../scripts/users-api';
-	import { PAGE_SIZES, readPageSize, savePageSize } from '../scripts/pager';
+	import { PAGE_SIZES, createPager, readPageSize, savePageSize } from '../scripts/pager';
 
 	interface UserRow {
 		id: string;
@@ -214,6 +264,7 @@
 	const activeInput = $<HTMLInputElement>('#uf-active');
 	const formError = $<HTMLElement>('#uf-error');
 	const deleteDialog = $<HTMLDialogElement>('#delete-dialog');
+	const detailDialog = $<HTMLDialogElement>('#detail-dialog');
 	const deleteText = $<HTMLElement>('#delete-text');
 	const pwBox = $<HTMLElement>('#uf-pw-box');
 	const pwInput = $<HTMLInputElement>('#uf-pw');
@@ -539,11 +590,149 @@
 	});
 
 	// Clicking the dim area around a dialog closes it.
-	for (const dialog of [userDialog, deleteDialog]) {
+	for (const dialog of [userDialog, deleteDialog, detailDialog]) {
 		dialog.addEventListener('click', (e) => {
 			if (e.target === dialog) dialog.close();
 		});
 	}
+
+	// ---- the details of one user: the accounts that registered through their link, and their credit history
+	interface Detail {
+		user: { name: string; email: string; role: string; status: string; referralCode: string | null; balance: number; invitedBy: { name: string; email: string } | null };
+		friends: Array<{ name: string; email: string; status: string; joinedAt: string; opened: number; earned: number }>;
+		history: Array<{ amount: number; label: string; at: string }>;
+		truncated: boolean;
+	}
+	const detailBody = $<HTMLElement>('#detail-body');
+	const detailStatus = $<HTMLElement>('#detail-status');
+	let detailData: Detail | null = null;
+	let detailRun = 0; // a slow answer for a user that was closed meanwhile is dropped
+	let detailTrigger: HTMLElement | null = null;
+	const whenFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+	const num = new Intl.NumberFormat('en-US');
+	// Every value below came from the server and is put in the page as text only.
+	const td = (text: string, className = '') => {
+		const cell = document.createElement('td');
+		cell.className = className;
+		cell.textContent = text;
+		return cell;
+	};
+
+	const friendsPager = createPager($<HTMLElement>('#detail-friends-pager'), () => drawFriends(), 'Accounts registered through the link');
+	const historyPager = createPager($<HTMLElement>('#detail-history-pager'), () => drawHistory(), 'Credit history');
+
+	const drawFriends = () => {
+		const list = detailData?.friends ?? [];
+		friendsPager.setTotal(list.length);
+		$('#detail-friends-none').hidden = list.length > 0;
+		$('#detail-friends-wrap').hidden = list.length === 0;
+		$('#detail-friends-rows').replaceChildren(
+			...friendsPager.slice(list).map((f) => {
+				const tr = document.createElement('tr');
+				const account = document.createElement('th');
+				account.scope = 'row';
+				account.className = 'acct';
+				const name = document.createElement('span');
+				name.className = 'dname';
+				name.textContent = f.name;
+				const email = document.createElement('span');
+				email.className = 'demail';
+				email.textContent = f.email + (f.status === 'deactivated' ? ' (deactivated)' : '');
+				account.append(name, email);
+				tr.append(account, td(dateFmt.format(new Date(f.joinedAt)), 'dwhen'), td(num.format(f.opened), 'num'), td(num.format(f.earned), 'num earned'));
+				return tr;
+			}),
+		);
+	};
+
+	const drawHistory = () => {
+		const list = detailData?.history ?? [];
+		historyPager.setTotal(list.length);
+		$('#detail-history-none').hidden = list.length > 0;
+		$('#detail-history-wrap').hidden = list.length === 0;
+		$('#detail-history-rows').replaceChildren(
+			...historyPager.slice(list).map((h) => {
+				const tr = document.createElement('tr');
+				tr.append(td(whenFmt.format(new Date(h.at)), 'dwhen'), td(h.label, 'dlabel'), td(`${h.amount > 0 ? '+' : ''}${num.format(h.amount)}`, `num ${h.amount < 0 ? 'minus' : h.amount > 0 ? 'plus' : ''}`));
+				return tr;
+			}),
+		);
+	};
+
+	const drawFacts = (d: Detail) => {
+		const facts: Array<[string, string]> = [
+			['Credits', num.format(d.user.balance)],
+			['Referral code', d.user.referralCode ?? 'Not made yet (made when the user opens Referrals)'],
+			['Invited by', d.user.invitedBy ? `${d.user.invitedBy.name} (${d.user.invitedBy.email})` : 'Nobody (registered without a link)'],
+			['Accounts invited', num.format(d.friends.length)],
+			['Role and status', `${d.user.role === 'admin' ? 'Administrator' : 'User'}, ${d.user.status === 'active' ? 'active' : 'deactivated'}`],
+		];
+		$('#detail-facts').replaceChildren(
+			...facts.flatMap(([label, value]) => {
+				const box = document.createElement('div');
+				const dt = document.createElement('dt');
+				dt.textContent = label;
+				const dd = document.createElement('dd');
+				dd.textContent = value;
+				box.append(dt, dd);
+				return [box];
+			}),
+		);
+	};
+
+	const openDetail = async (user: UserRow, trigger: HTMLElement) => {
+		const run = ++detailRun;
+		detailTrigger = trigger;
+		detailData = null;
+		$('#detail-title').textContent = fullName(user);
+		$('#detail-sub').textContent = user.email;
+		detailBody.hidden = true;
+		detailStatus.classList.remove('is-error');
+		detailStatus.textContent = isNewId(user.id) ? 'This user has not been saved yet, so there is nothing to show. Click Save changes first.' : 'Loading…';
+		detailDialog.showModal();
+		$<HTMLButtonElement>('#detail-close').focus();
+		if (isNewId(user.id)) return;
+		let response: Response;
+		let data: any;
+		try {
+			response = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/referrals`, { credentials: 'same-origin', cache: 'no-store' });
+			data = await response.json().catch(() => null);
+		} catch {
+			if (run !== detailRun) return;
+			detailStatus.classList.add('is-error');
+			detailStatus.textContent = 'The server could not be reached.';
+			return;
+		}
+		if (run !== detailRun) return;
+		if (!response.ok) {
+			detailStatus.classList.add('is-error');
+			detailStatus.textContent = response.status === 404 ? 'This user no longer exists on the server. Reload the page.' : typeof data?.error === 'string' ? data.error : 'The details could not be loaded.';
+			return;
+		}
+		detailData = data as Detail;
+		drawFacts(detailData);
+		friendsPager.goTo(1);
+		historyPager.goTo(1);
+		drawFriends();
+		drawHistory();
+		$('#detail-truncated').hidden = !detailData.truncated;
+		detailStatus.textContent = '';
+		detailBody.hidden = false;
+	};
+	const isNewId = (id: string) => id.startsWith('new-');
+
+	// The name and the rest of the user cell open the details; the buttons on the right keep doing what they did.
+	rowsEl.addEventListener('click', (e) => {
+		const cell = (e.target as HTMLElement).closest<HTMLElement>('.user-cell');
+		if (!cell) return;
+		const user = users.find((u) => u.id === cell.closest<HTMLElement>('tr')?.dataset.id);
+		if (user) openDetail(user, cell.querySelector<HTMLElement>('.open-detail')!);
+	});
+	$('#detail-close').addEventListener('click', () => detailDialog.close());
+	detailDialog.addEventListener('close', () => {
+		detailRun++; // ignore an answer that arrives after closing
+		detailTrigger?.focus();
+	});
 
 	// ---- save or discard everything staged
 	discardButton.addEventListener('click', () => {
@@ -726,6 +915,29 @@
 	}
 	tbody :global(.name) {
 		font-weight: 600;
+	}
+	/* The name is a button that opens the details: it looks like text, and the whole user cell shows it can be clicked. */
+	tbody :global(button.open-detail) {
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		font: inherit;
+		font-weight: 600;
+		text-align: left;
+		cursor: pointer;
+	}
+	tbody :global(button.open-detail:hover) {
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	tbody :global(button.open-detail:focus-visible) {
+		outline: 2px solid var(--text);
+		outline-offset: 2px;
+		border-radius: 3px;
+	}
+	tbody :global(.user-cell) {
+		cursor: pointer;
 	}
 	tbody :global(.email) {
 		font-size: 13px;
@@ -1065,6 +1277,147 @@
 		outline: 2px solid var(--text);
 		outline-offset: 2px;
 		border-radius: 3px;
+	}
+	/* Details of one user: wider than the other dialogs, with two small tables. */
+	.dialog.detail {
+		width: min(820px, calc(100vw - 32px));
+	}
+	.detail-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 12px;
+	}
+	.detail-who {
+		min-width: 0;
+	}
+	.detail-head h2 {
+		margin: 0;
+		overflow-wrap: anywhere;
+	}
+	.detail-sub {
+		margin: 2px 0 0;
+		font-size: 14px;
+		color: var(--muted);
+		overflow-wrap: anywhere;
+	}
+	.detail-status {
+		margin: 0 0 12px;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.detail-status:empty {
+		display: none;
+	}
+	.detail-status.is-error {
+		color: #c62828;
+	}
+	.facts {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+		gap: 10px;
+		margin: 0 0 20px;
+	}
+	.facts :global(div) {
+		padding: 10px 14px;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+	}
+	.facts :global(dt) {
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--muted);
+	}
+	.facts :global(dd) {
+		margin: 3px 0 0;
+		font-size: 14px;
+		font-weight: 600;
+		overflow-wrap: anywhere;
+	}
+	.detail h3 {
+		margin: 22px 0 8px;
+		font-size: 16px;
+	}
+	.detail-none,
+	.detail-note {
+		margin: 0;
+		font-size: 14px;
+		color: var(--muted);
+	}
+	.detail-note {
+		margin-top: 12px;
+		font-size: 12px;
+	}
+	.detail :global(.table-wrap[hidden]),
+	.detail :global(.detail-none[hidden]) {
+		display: none;
+	}
+	.detail :global(.table-wrap) {
+		overflow-x: auto;
+		border: 1px solid var(--border);
+		border-radius: 10px;
+	}
+	.detail :global(table) {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 14px;
+	}
+	.detail :global(th),
+	.detail :global(td) {
+		padding: 9px 12px;
+		text-align: left;
+		vertical-align: top;
+	}
+	.detail :global(thead th) {
+		background: #fafafa;
+		border-bottom: 1px solid var(--border);
+		color: var(--muted);
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+	.detail :global(tbody tr + tr > *) {
+		border-top: 1px solid var(--bg-soft);
+	}
+	.detail :global(.num) {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	.detail :global(.acct) {
+		font-weight: 400;
+	}
+	.detail :global(.dname),
+	.detail :global(.demail) {
+		display: block;
+		overflow-wrap: anywhere;
+	}
+	.detail :global(.dname) {
+		font-weight: 600;
+	}
+	.detail :global(.demail),
+	.detail :global(.dwhen) {
+		font-size: 12px;
+		color: var(--muted);
+	}
+	.detail :global(.dwhen) {
+		white-space: nowrap;
+	}
+	.detail :global(.dlabel) {
+		overflow-wrap: anywhere;
+	}
+	.detail :global(.earned),
+	.detail :global(.plus) {
+		font-weight: 700;
+		color: #1b6b34;
+	}
+	.detail :global(.minus) {
+		font-weight: 700;
+		color: #c62828;
 	}
 	/* The dialog is taller now: let it scroll inside the screen rather than run off it. */
 	.dialog {
