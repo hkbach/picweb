@@ -217,6 +217,21 @@ const MIGRATIONS: string[] = [
 	-- registration sets it: accounts that already exist, and ones an administrator creates, do not get the notice.
 	ALTER TABLE users ADD COLUMN referrals_notice INTEGER NOT NULL DEFAULT 0;
 	`,
+	`
+	-- How many albums an invited friend has opened since the last batch was paid to their inviter. Before, progress was
+	-- worked out from the friend's lifetime count, so changing "albums per credit" paid many batches at once (or none for a
+	-- long time). Existing friends start from what they had left over under the current setting (at most one batch short).
+	CREATE TABLE referral_progress (
+		friend_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		pending INTEGER NOT NULL DEFAULT 0
+	);
+	INSERT INTO referral_progress (friend_id, pending)
+	SELECT u.id, MIN(n.per - 1, MAX(0,
+		(SELECT COUNT(*) FROM album_opens o WHERE o.user_id = u.id)
+		- (SELECT COUNT(*) FROM credit_ledger l WHERE l.reason = 'referral_albums' AND l.source_user_id = u.id AND l.user_id = u.referred_by) * n.per))
+	FROM users u, (SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'credits.albums_per_credit'), 5) AS per) n
+	WHERE u.referred_by IS NOT NULL;
+	`,
 ];
 
 type Db = DatabaseSync;

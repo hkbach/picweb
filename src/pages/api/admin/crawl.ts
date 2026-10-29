@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { CrawlError, crawlImages, parseFacebookUrl, parseTargetUrl, type CrawlSource } from '../../../../crawler/crawl-images.ts';
 import { adminApiEnabled, json, rejectUnlessSameOriginJson, requireAdmin } from '../../../server/admin-api.ts';
+import { readJson } from '../../../server/validate.ts';
 
 // Runs on the server on demand; the rest of the site stays static.
 export const prerender = false;
@@ -25,7 +26,8 @@ export const POST: APIRoute = async ({ request }) => {
 	let target: string;
 	let source: CrawlSource = 'web';
 	try {
-		const body = await request.json();
+		const body = await readJson(request);
+		if (!body) throw new Error('Invalid request.');
 		target = typeof body?.url === 'string' ? body.url : '';
 		if (body?.source !== undefined && body.source !== 'web' && body.source !== 'facebook') return json({ error: 'Unknown source.' }, 400);
 		source = body?.source === 'facebook' ? 'facebook' : 'web';

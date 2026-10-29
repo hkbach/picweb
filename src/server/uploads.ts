@@ -30,7 +30,11 @@ export interface UploadRequest {
 }
 
 export async function readUploadRequest(request: Request): Promise<UploadRequest> {
-	const declared = Number(request.headers.get('content-length'));
+	// The size must be stated up front (browsers always do for a form upload): a body sent in chunks without it is refused,
+	// so the whole form is never read into memory before its size is known.
+	const header = request.headers.get('content-length');
+	if (header === null) throw new AlbumError('The upload size is missing.', 411);
+	const declared = Number(header);
 	if (!Number.isFinite(declared) || declared > MAX_REQUEST_BYTES) throw new AlbumError('The upload is too large.', 413);
 
 	let form: FormData;

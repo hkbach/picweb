@@ -124,7 +124,7 @@ const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '
 									<td class="when">{when(f.joinedAt)}</td>
 									<td class="num">
 										{f.opened}
-										<span class="next">{settings.albumsPerCredit - (f.opened % settings.albumsPerCredit)} more for the next credit</span>
+										<span class="next">{Math.max(1, settings.albumsPerCredit - f.pending)} more for the next credit</span>
 									</td>
 									<td class="num earned">{f.earned.toLocaleString('en-US')}</td>
 								</tr>

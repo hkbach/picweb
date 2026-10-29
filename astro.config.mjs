@@ -9,5 +9,8 @@ export default defineConfig({
 
   adapter: node({
     mode: 'standalone',
+    // No request may be larger than the biggest legitimate one (an album upload, 120 MB: see src/server/uploads.ts).
+    // The adapter's own default is 1 GB.
+    bodySizeLimit: 130 * 1024 * 1024,
   }),
 });

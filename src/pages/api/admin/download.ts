@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { downloadImage, DownloadError } from '../../../../crawler/download-image.ts';
 import { MAX_PHOTOS_IN_FOLDER, PHOTOS_DIR, adminApiEnabled, json, rejectUnlessSameOriginJson, requireAdmin } from '../../../server/admin-api.ts';
+import { readJson } from '../../../server/validate.ts';
 
 // Downloads ONE image per request, so the page can show progress and carry on after a failure.
 export const prerender = false;
@@ -16,13 +17,9 @@ export const POST: APIRoute = async ({ request }) => {
 	const rejected = rejectUnlessSameOriginJson(request);
 	if (rejected) return rejected;
 
-	let url = '';
-	try {
-		const body = await request.json();
-		url = typeof body?.url === 'string' ? body.url : '';
-	} catch {
-		return json({ error: 'Invalid request.' }, 400);
-	}
+	const body = await readJson(request);
+	if (!body) return json({ error: 'Invalid request.' }, 400);
+	const url = typeof body.url === 'string' ? body.url : '';
 	if (!url) return json({ error: 'Send the image address as "url".' }, 400);
 
 	if (running >= MAX_AT_ONCE) return json({ error: 'Too many downloads at once. Try again in a moment.' }, 429);

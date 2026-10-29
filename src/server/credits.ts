@@ -118,9 +118,10 @@ export function registerCredits(userId: string, inviterId: string | null) {
 }
 
 /**
- * A signed-in user was shown an album. If they were invited, each different album counts once; every time the count
- * reaches another multiple of `albumsPerCredit`, the person who invited them is granted the credits. (A grant is written
- * even when the amount is 0, so raising the amount later does not pay back what happened before.)
+ * A signed-in user was shown an album. If they were invited, each different album counts once towards the next batch;
+ * when the friend has opened `albumsPerCredit` albums since the last batch, the person who invited them is granted the
+ * credits and the count starts again. At most one batch is paid per album opened, and a change of the settings only applies
+ * from then on. (A grant is written even when the amount is 0, so raising the amount later does not pay back the past.)
  */
 export function recordAlbumOpen(userId: string, albumId: number) {
 	const me = db().prepare('SELECT referred_by FROM users WHERE id = ?').get(userId) as { referred_by: string | null } | undefined;
@@ -130,10 +131,14 @@ export function recordAlbumOpen(userId: string, albumId: number) {
 		const added = db().prepare('INSERT OR IGNORE INTO album_opens (user_id, album_id, created_at) VALUES (?, ?, ?)').run(userId, albumId, new Date().toISOString());
 		if (Number(added.changes) === 0) return;
 		const settings = getCreditSettings();
-		const opened = (db().prepare('SELECT COUNT(*) AS n FROM album_opens WHERE user_id = ?').get(userId) as { n: number }).n;
-		const steps = Math.floor(opened / settings.albumsPerCredit);
-		const done = (db().prepare("SELECT COUNT(*) AS n FROM credit_ledger WHERE reason = 'referral_albums' AND user_id = ? AND source_user_id = ?").get(inviter, userId) as { n: number }).n;
-		for (let i = done; i < steps; i++) grant(inviter, settings.referralAlbums, 'referral_albums', userId);
+		const per = settings.albumsPerCredit;
+		db().prepare('INSERT INTO referral_progress (friend_id, pending) VALUES (?, 1) ON CONFLICT(friend_id) DO UPDATE SET pending = pending + 1').run(userId);
+		const pending = (db().prepare('SELECT pending FROM referral_progress WHERE friend_id = ?').get(userId) as { pending: number }).pending;
+		if (pending >= per) {
+			grant(inviter, settings.referralAlbums, 'referral_albums', userId);
+			// Whatever is left over after a smaller batch size was set never adds up to more than one batch in waiting.
+			db().prepare('UPDATE referral_progress SET pending = ? WHERE friend_id = ?').run(Math.min(pending - per, per - 1), userId);
+		}
 	});
 }
 
@@ -156,6 +161,8 @@ export interface Friend {
 	joinedAt: string;
 	/** Different albums the friend has opened. */
 	opened: number;
+	/** Albums opened since the last batch was paid (towards the next credit). */
+	pending: number;
 	/** Credits this friend has earned the inviter so far. */
 	earned: number;
 }
@@ -180,15 +187,17 @@ export function referralSummary(userId: string): ReferralSummary {
 		.prepare(
 			`SELECT u.first_name, u.last_name, u.email, u.created_at,
 			        (SELECT COUNT(*) FROM album_opens o WHERE o.user_id = u.id) AS opened,
+			        COALESCE((SELECT p.pending FROM referral_progress p WHERE p.friend_id = u.id), 0) AS pending,
 			        (SELECT COALESCE(SUM(l.amount), 0) FROM credit_ledger l WHERE l.user_id = ? AND l.source_user_id = u.id AND l.reason IN ('referral_signup', 'referral_albums')) AS earned
 			 FROM users u WHERE u.referred_by = ? ORDER BY u.created_at DESC, u.id DESC LIMIT 200`,
 		)
-		.all(userId, userId) as unknown as Array<{ first_name: string; last_name: string; email: string; created_at: string; opened: number; earned: number }>;
+		.all(userId, userId) as unknown as Array<{ first_name: string; last_name: string; email: string; created_at: string; opened: number; pending: number; earned: number }>;
 	const friends: Friend[] = rows.map((r) => ({
 		name: `${r.first_name} ${r.last_name.trim().charAt(0).toUpperCase()}.`.trim(),
 		email: maskEmail(r.email),
 		joinedAt: r.created_at,
 		opened: r.opened,
+		pending: r.pending,
 		earned: r.earned,
 	}));
 	const friendCount = (db().prepare('SELECT COUNT(*) AS n FROM users WHERE referred_by = ?').get(userId) as { n: number }).n;
